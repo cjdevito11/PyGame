@@ -23,15 +23,6 @@ python -m ui.cli show classes adventurer
 python -m ui.cli validate
 ```
 
-Prefer a one-liner? A small `Makefile` mirrors the same flow:
-
-```bash
-make install
-make demo-list
-make demo-show
-make demo-validate
-```
-
 To add new content, drop another entry into the matching file in `data/`. The schemas keep you honest and will show friendly messages if something is missing.
 
 ## Contributing
