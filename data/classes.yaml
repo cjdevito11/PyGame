@@ -1,0 +1,8 @@
+- name: adventurer
+  description: Balanced stats for beginners.
+  hit_points: 12
+  mana: 5
+- name: mage
+  description: Weak body but powerful spells.
+  hit_points: 8
+  mana: 15

@@ -1,0 +1,8 @@
+- name: hero
+  description: A courageous explorer ready for anything.
+  symbol: "@"
+  color: yellow
+- name: ghost
+  description: An eerie shape that flickers in the dark.
+  symbol: "G"
+  color: cyan
