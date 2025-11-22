@@ -1,0 +1,8 @@
+# Branching quest resolved by an event choice
+- identifier: talk-to-elder
+  description: Ask the village elder for guidance.
+  trigger_event: npc.choice
+  owner: Aria
+  reward_gold: 12
+  condition_field: choice
+  condition_value: help-village

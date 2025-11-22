@@ -1,0 +1,7 @@
+# New class that stays inside safe stat bounds
+- name: tinkerer
+  description: Likes gadgets over heavy armor.
+  # modest health pool
+  hit_points: 10
+  # enough energy to showcase resource usage
+  mana: 9

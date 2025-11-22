@@ -55,6 +55,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Limit validation to a single registry.",
     )
 
+    play_parser = subparsers.add_parser(
+        "play", help="Run a lightweight duel loop between two characters"
+    )
+    play_parser.add_argument(
+        "--player",
+        default="Aria",
+        help="Character controlled by the player (defaults to Aria)",
+    )
+    play_parser.add_argument(
+        "--enemy",
+        default="Shade",
+        help="Opponent to fight against (defaults to Shade)",
+    )
+    play_parser.add_argument(
+        "--weapon",
+        default=None,
+        help="Optional weapon name to auto-equip for the player",
+    )
+    play_parser.add_argument(
+        "--actions",
+        help="Comma-separated actions for non-interactive runs (attack,buy,inspect,quit)",
+    )
+
     attack_parser = subparsers.add_parser("attack", help="Perform an attack between characters")
     attack_parser.add_argument("attacker")
     attack_parser.add_argument("defender")
@@ -198,6 +221,90 @@ def build_router(context: GameContext) -> CommandRouter:
         print(f"{args.name} has {gold} gold")
         return 0
 
+    def describe(character) -> str:
+        items = ", ".join(item.name for item in character.inventory) or "unarmed"
+        gold = context.economy.wallets.get(character.name, character.gold)
+        return f"{character.name}: {character.hit_points} HP, gold={gold}, items={items}"
+
+    def handle_play(args: object) -> int:
+        player = context.combat.characters.get(args.player)
+        enemy = context.combat.characters.get(args.enemy)
+        if player is None or enemy is None:
+            print("Both player and enemy must exist in the roster. Try --player Aria --enemy Shade.")
+            return 1
+
+        if args.weapon and all(item.name != args.weapon for item in player.inventory):
+            try:
+                context.combat.add_item(player.name, args.weapon)
+            except Exception as exc:  # pragma: no cover - user feedback path
+                print(f"Could not equip {args.weapon}: {exc}")
+                return 1
+
+        equipped_weapon = args.weapon or (player.inventory[0].name if player.inventory else None)
+
+        scripted_actions: list[str] | None = None
+        if args.actions is not None:
+            scripted_actions = [action.strip().lower() for action in args.actions.split(",") if action.strip()]
+
+        def prompt() -> str:
+            if scripted_actions is not None:
+                if scripted_actions:
+                    return scripted_actions.pop(0)
+                return "quit"
+            return input("[a]ttack, [b]uy, [i]nspect, [q]uit: ").strip().lower()
+
+        print("Welcome to the camp! Defeat your opponent to win a small reward.")
+        print(describe(player))
+        print(describe(enemy))
+
+        while player.is_alive() and enemy.is_alive():
+            action = prompt()
+            if action in {"a", "attack"}:
+                context.bus.publish(
+                    "combat.attack", attacker=player.name, defender=enemy.name, weapon=equipped_weapon
+                )
+                if not enemy.is_alive():
+                    break
+                context.bus.publish("combat.attack", attacker=enemy.name, defender=player.name)
+                print(describe(player))
+                print(describe(enemy))
+                continue
+
+            if action in {"b", "buy"}:
+                store = context.economy.stores.get("camp", {})
+                if not store:
+                    print("The camp store is empty today.")
+                    continue
+                print("Camp store (prices in gold):")
+                for item_name, price in store.items():
+                    print(f"- {item_name}: {price}")
+                choice = prompt() if scripted_actions else input("Choose an item name to buy (or press Enter to skip): ")
+                if not choice:
+                    continue
+                try:
+                    context.bus.publish("economy.purchase", buyer=player.name, store="camp", item=choice)
+                    print(f"Bought {choice}.")
+                except Exception as exc:  # pragma: no cover - feedback path
+                    print(f"Could not buy {choice}: {exc}")
+                continue
+
+            if action in {"i", "inspect"}:
+                print(describe(player))
+                print(describe(enemy))
+                continue
+
+            if action in {"q", "quit"}:
+                print("Exiting duel. Come back soon!")
+                return 0
+
+            print("Unknown action. Try attack, buy, inspect, or quit.")
+
+        if player.is_alive():
+            print(f"{player.name} wins! Gold now: {context.economy.wallets[player.name]}")
+            return 0
+        print(f"{player.name} was defeated. Better luck next time.")
+        return 1
+
     def handle_buy(args: object) -> int:
         try:
             context.bus.publish(
@@ -262,6 +369,7 @@ def build_router(context: GameContext) -> CommandRouter:
     router.register("wallet", handle_wallet)
     router.register("buy", handle_buy)
     router.register("debug", handle_debug)
+    router.register("play", handle_play)
     return router
 
 

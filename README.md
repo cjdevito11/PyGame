@@ -21,6 +21,9 @@ python -m pip install -r requirements.txt
 python -m ui.cli list appearances
 python -m ui.cli show classes adventurer
 python -m ui.cli validate
+
+# Jump into a quick duel (no extra setup required)
+python -m ui.cli play --actions attack,attack
 ```
 
 To add new content, drop another entry into the matching file in `data/`. The schemas keep you honest and will show friendly messages if something is missing.
@@ -32,6 +35,8 @@ Working inside this repository does not require adding new collaborators. A typi
 1. Make your edits and run the automated checks: `python -m unittest`.
 2. Commit locally with a clear message that describes the change.
 3. Use the provided PR helper command (exposed to the agent as `make_pr`) to open a pull request. If the command returns a transient `500` error, rerun it after a short pause—the backend occasionally hiccups even when your branch is fine.
+
+For a guided walkthrough of adding new data-driven content, coding standards, and exercises with tests, see `docs/contributing.md`.
 
 ### If PR creation keeps failing
 
