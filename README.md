@@ -14,16 +14,18 @@ A terminal-friendly demo that shows how to wire data-driven game content using s
 
 ## Getting started
 
-Install dependencies and run the demo CLI:
+Install dependencies and try the new real-time Pygame prototype (plus the legacy CLI tools):
 
 ```bash
 python -m pip install -r requirements.txt
+
+# Real-time prototype (WASD/arrow keys to move, Space to attack)
+python -m ui.game
+
+# CLI helpers remain for data inspection and validation
 python -m ui.cli list appearances
 python -m ui.cli show classes adventurer
 python -m ui.cli validate
-
-# Jump into a quick duel (no extra setup required)
-python -m ui.cli play --actions attack,attack
 ```
 
 To add new content, drop another entry into the matching file in `data/`. The schemas keep you honest and will show friendly messages if something is missing.
