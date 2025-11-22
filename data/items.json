@@ -1,0 +1,14 @@
+[
+  {
+    "name": "lantern",
+    "description": "Keeps the tunnels lit and spirits calm.",
+    "slot": "offhand",
+    "power": 1
+  },
+  {
+    "name": "bronze_sword",
+    "description": "A reliable blade for starting adventurers.",
+    "slot": "mainhand",
+    "power": 3
+  }
+]
