@@ -1,0 +1,7 @@
+# Minimal new appearance for the guided exercise
+- name: ember_sprite
+  # Single-character map glyph
+  symbol: "e"
+  # Easy-to-read color name
+  description: Flickers near old campfires.
+  color: orange

@@ -33,6 +33,8 @@ Working inside this repository does not require adding new collaborators. A typi
 2. Commit locally with a clear message that describes the change.
 3. Use the provided PR helper command (exposed to the agent as `make_pr`) to open a pull request. If the command returns a transient `500` error, rerun it after a short pause—the backend occasionally hiccups even when your branch is fine.
 
+For a guided walkthrough of adding new data-driven content, coding standards, and exercises with tests, see `docs/contributing.md`.
+
 ### If PR creation keeps failing
 
 In rare cases the PR helper can return repeated `500` responses even when your branch is healthy. A quick checklist before retrying:
