@@ -23,3 +23,10 @@ class ClassDefinition(BaseDefinition):
 class ItemDefinition(BaseDefinition):
     slot: str
     power: int = Field(..., ge=0)
+
+
+class CharacterDefinition(BaseDefinition):
+    class_name: str = Field(..., description="Name of a class definition to use")
+    appearance: str = Field(..., description="Appearance to display")
+    items: list[str] = Field(default=[])
+    gold: int = Field(default=0, ge=0)
