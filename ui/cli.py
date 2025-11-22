@@ -1,31 +1,15 @@
 """Small CLI that demonstrates data-driven registries and event systems."""
 import argparse
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict
 
 from core.logging_config import get_logger, log_with_fields
-from systems import (
-    CombatSystem,
-    CommandRouter,
-    EconomySystem,
-    EventBus,
-    QuestSystem,
-    RegistryBundle,
-)
+from systems import CommandRouter
+from ui.context import GameContext, build_context
 
 
 logger = get_logger(__name__)
-
-
-@dataclass
-class GameContext:
-    bundle: RegistryBundle
-    bus: EventBus
-    combat: CombatSystem
-    quests: QuestSystem
-    economy: EconomySystem
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,34 +95,6 @@ def build_parser() -> argparse.ArgumentParser:
     simulate_parser.add_argument("--bonus", type=int, default=0)
 
     return parser
-
-
-def build_context(data_path: Path) -> GameContext:
-    bundle = RegistryBundle(data_path)
-    bundle.load()
-    bus = EventBus()
-    combat = CombatSystem(bus, class_registry=bundle.classes, item_registry=bundle.items)
-
-    for name in bundle.characters.entries():
-        profile = bundle.characters.create(name)
-        combat.register_character(profile.name, profile.class_name, profile.items, gold=profile.gold)
-
-    economy = EconomySystem(bus, item_registry=bundle.items, combat_system=combat)
-    for character in combat.characters.values():
-        economy.sync_wallet(character.name, character.gold)
-    economy.register_store("camp", {name: definition["power"] + 1 for name, definition in bundle.items.definitions().items()})
-
-    quests = QuestSystem(bus)
-    if "Aria" in combat.characters and "Shade" in combat.characters:
-        quests.register_quest(
-            identifier="defeat-shade",
-            description="Defeat Shade to earn pocket money.",
-            trigger_event="combat.defeated",
-            owner="Aria",
-            reward_gold=4,
-            condition=lambda event: event.payload.get("defender") == "Shade",
-        )
-    return GameContext(bundle=bundle, bus=bus, combat=combat, quests=quests, economy=economy)
 
 
 def build_router(context: GameContext) -> CommandRouter:
