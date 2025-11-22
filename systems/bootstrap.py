@@ -5,8 +5,8 @@ from typing import Dict
 from core.registry import Registry
 from core.validation import DefinitionValidator
 from persistence.loader import load_definitions
-from world.entities import Appearance, CharacterClass, Item
-from world.schemas import AppearanceDefinition, ClassDefinition, ItemDefinition
+from world.entities import Appearance, CharacterClass, CharacterProfile, Item
+from world.schemas import AppearanceDefinition, CharacterDefinition, ClassDefinition, ItemDefinition
 
 
 class RegistryBundle:
@@ -17,15 +17,23 @@ class RegistryBundle:
         self.appearances = Registry("appearances", self.validator, Appearance.from_definition)
         self.classes = Registry("classes", self.validator, CharacterClass.from_definition)
         self.items = Registry("items", self.validator, Item.from_definition)
+        self.characters = Registry("characters", self.validator, CharacterProfile.from_definition)
 
     def _register_schemas(self) -> None:
         self.validator.register_schema("appearances", AppearanceDefinition)
         self.validator.register_schema("classes", ClassDefinition)
         self.validator.register_schema("items", ItemDefinition)
+        self.validator.register_schema("characters", CharacterDefinition)
 
     def load(self) -> None:
         datasets: Dict[str, list] = {}
-        for file_name in ("appearances.yaml", "classes.yaml", "items.json"):
+        for file_name in (
+            "appearances.yaml",
+            "classes.yaml",
+            "items.json",
+            "characters.yaml",
+            "characters.json",
+        ):
             path = self.base_path / file_name
             if path.exists():
                 datasets[path.stem] = load_definitions(path)
@@ -35,3 +43,5 @@ class RegistryBundle:
             self.classes.load_many(datasets["classes"])
         if "items" in datasets:
             self.items.load_many(datasets["items"])
+        if "characters" in datasets:
+            self.characters.load_many(datasets["characters"])

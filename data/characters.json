@@ -1,0 +1,18 @@
+[
+  {
+    "name": "Aria",
+    "description": "Curious explorer who trusts her blade.",
+    "class_name": "adventurer",
+    "appearance": "hero",
+    "items": ["bronze_sword"],
+    "gold": 5
+  },
+  {
+    "name": "Shade",
+    "description": "Whispering mage with a lantern.",
+    "class_name": "mage",
+    "appearance": "ghost",
+    "items": ["lantern"],
+    "gold": 3
+  }
+]

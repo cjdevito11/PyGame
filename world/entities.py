@@ -42,3 +42,24 @@ class Item:
     @classmethod
     def from_definition(cls, name: str, data: Dict) -> "Item":
         return cls(name=name, description=data["description"], slot=data["slot"], power=data["power"])
+
+
+@dataclass
+class CharacterProfile:
+    """Lightweight container describing how to instantiate a character."""
+
+    name: str
+    class_name: str
+    appearance: str
+    items: list[str]
+    gold: int
+
+    @classmethod
+    def from_definition(cls, name: str, data: Dict) -> "CharacterProfile":
+        return cls(
+            name=name,
+            class_name=data["class_name"],
+            appearance=data["appearance"],
+            items=list(data.get("items", [])),
+            gold=int(data.get("gold", 0)),
+        )
