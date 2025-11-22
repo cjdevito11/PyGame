@@ -36,3 +36,17 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertIn("All registry definitions are valid.", output)
+
+    def test_debug_inspect_reports_character(self) -> None:
+        code, output = run_cli([str(DATA_DIR), "debug", "inspect", "Aria"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("Aria: class=adventurer", output)
+
+    def test_debug_simulate_attack(self) -> None:
+        code, output = run_cli(
+            [str(DATA_DIR), "debug", "simulate", "Aria", "Shade", "--weapon", "bronze_sword", "--bonus", "2"]
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("Preview: Aria would deal", output)

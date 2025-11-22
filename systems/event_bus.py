@@ -1,8 +1,13 @@
 """Simple publish/subscribe event bus with plugin-friendly hooks."""
 
+from __future__ import annotations
+
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Callable, DefaultDict, Dict, List
+
+from core.logging_config import get_logger, log_with_fields
 
 
 @dataclass
@@ -25,6 +30,7 @@ class EventBus:
         self._subscribers: DefaultDict[str, List[Callable[[Event], Any]]] = defaultdict(list)
         self._pre_hooks: DefaultDict[str, List[Callable[[Event], Any]]] = defaultdict(list)
         self._post_hooks: DefaultDict[str, List[Callable[[Event], Any]]] = defaultdict(list)
+        self._logger = get_logger(__name__)
 
     def subscribe(self, event_name: str, handler: Callable[[Event], Any]) -> None:
         """Register a handler for a specific event name."""
@@ -49,6 +55,7 @@ class EventBus:
         """Dispatch an event to hooks and subscribers, returning handler results."""
 
         event = Event(name=event_name, payload=dict(payload))
+        log_with_fields(self._logger, logging.DEBUG, "Publishing event", name=event_name, payload=payload)
         for hook in self._pre_hooks.get(event_name, []):
             hook(event)
 
