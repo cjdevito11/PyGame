@@ -21,6 +21,9 @@ python -m pip install -r requirements.txt
 python -m ui.cli list appearances
 python -m ui.cli show classes adventurer
 python -m ui.cli validate
+
+# Jump into a quick duel (no extra setup required)
+python -m ui.cli play --actions attack,attack
 ```
 
 To add new content, drop another entry into the matching file in `data/`. The schemas keep you honest and will show friendly messages if something is missing.
