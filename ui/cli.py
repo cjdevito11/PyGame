@@ -1,9 +1,11 @@
 """Small CLI that demonstrates data-driven registries and event systems."""
 import argparse
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict
 
+from core.logging_config import get_logger, log_with_fields
 from systems import (
     CombatSystem,
     CommandRouter,
@@ -12,6 +14,9 @@ from systems import (
     QuestSystem,
     RegistryBundle,
 )
+
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -66,6 +71,22 @@ def build_parser() -> argparse.ArgumentParser:
     buy_parser.add_argument("buyer")
     buy_parser.add_argument("item")
 
+    debug_parser = subparsers.add_parser("debug", help="Sandbox-only helper commands")
+    debug_sub = debug_parser.add_subparsers(dest="debug_command", required=True)
+
+    spawn_parser = debug_sub.add_parser("spawn", help="Give a character a new item")
+    spawn_parser.add_argument("character")
+    spawn_parser.add_argument("item")
+
+    inspect_parser = debug_sub.add_parser("inspect", help="Inspect a character without changing them")
+    inspect_parser.add_argument("character")
+
+    simulate_parser = debug_sub.add_parser("simulate", help="Preview a fight without hurting anyone")
+    simulate_parser.add_argument("attacker")
+    simulate_parser.add_argument("defender")
+    simulate_parser.add_argument("--weapon", default=None)
+    simulate_parser.add_argument("--bonus", type=int, default=0)
+
     return parser
 
 
@@ -109,6 +130,7 @@ def build_router(context: GameContext) -> CommandRouter:
 
     def handle_list(args: object) -> int:
         registry = registry_map[args.registry]
+        log_with_fields(logger, logging.INFO, "Listing entries", registry=args.registry)
         print("Available entries:")
         for name in registry.entries():
             print(f"- {name}")
@@ -132,6 +154,7 @@ def build_router(context: GameContext) -> CommandRouter:
                 print(f"{name}: no entries found.")
                 return 1
             print(f"{name}: {len(entries)} entries OK")
+        log_with_fields(logger, logging.INFO, "Validated data", registries=list(registry_names))
         print("All registry definitions are valid.")
         return 0
 
@@ -139,6 +162,15 @@ def build_router(context: GameContext) -> CommandRouter:
         if args.attacker not in context.combat.characters or args.defender not in context.combat.characters:
             print("Both attacker and defender must exist in the roster.")
             return 1
+        log_with_fields(
+            logger,
+            logging.INFO,
+            "Running attack",
+            attacker=args.attacker,
+            defender=args.defender,
+            weapon=args.weapon or "unarmed",
+            bonus=args.bonus,
+        )
         context.bus.publish(
             "combat.attack",
             attacker=args.attacker,
@@ -180,6 +212,48 @@ def build_router(context: GameContext) -> CommandRouter:
         print(f"{args.buyer} bought {args.item}")
         return 0
 
+    def handle_debug(args: object) -> int:
+        if args.debug_command == "spawn":
+            try:
+                context.combat.add_item(args.character, args.item)
+            except Exception as exc:
+                print(f"Could not add {args.item} to {args.character}: {exc}")
+                return 1
+            print(f"Added {args.item} to {args.character}'s backpack.")
+            return 0
+
+        if args.debug_command == "inspect":
+            character = context.combat.characters.get(args.character)
+            if character is None:
+                print(f"No character named {args.character} is loaded.")
+                return 1
+            items = ", ".join(item.name for item in character.inventory) or "nothing"
+            print(
+                f"{character.name}: class={character.class_name}, hp={character.hit_points}, "
+                f"gold={character.gold}, items={items}"
+            )
+            return 0
+
+        if args.debug_command == "simulate":
+            try:
+                preview = context.combat.preview_attack(
+                    args.attacker,
+                    args.defender,
+                    weapon_name=args.weapon,
+                    bonus_damage=args.bonus,
+                )
+            except Exception as exc:
+                print(f"Could not simulate attack: {exc}")
+                return 1
+            print(
+                f"Preview: {args.attacker} would deal {preview['damage']} damage. "
+                f"{args.defender} would have {preview['remaining_hp']} HP left."
+            )
+            return 0
+
+        print("Unknown debug command.")
+        return 1
+
     router.register("list", handle_list)
     router.register("show", handle_show)
     router.register("validate", handle_validate)
@@ -187,6 +261,7 @@ def build_router(context: GameContext) -> CommandRouter:
     router.register("quests", handle_quests)
     router.register("wallet", handle_wallet)
     router.register("buy", handle_buy)
+    router.register("debug", handle_debug)
     return router
 
 
@@ -197,12 +272,15 @@ def run(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        log_with_fields(logger, logging.INFO, "Building game context", data_path=str(args.data_path))
         context = build_context(args.data_path)
     except Exception as exc:  # pragma: no cover - smoke tested via CLI
+        log_with_fields(logger, logging.ERROR, "Failed to load context", error=str(exc))
         print(f"Failed to load data: {exc}")
         return 1
 
     router = build_router(context)
+    log_with_fields(logger, logging.INFO, "Dispatching CLI command", command=args.command)
     return router.dispatch(args)
 
 

@@ -1,7 +1,9 @@
 """Wires together registries, schemas, and persistence for the CLI demo."""
+import logging
 from pathlib import Path
 from typing import Dict
 
+from core.logging_config import get_logger, log_with_fields
 from core.registry import Registry
 from core.validation import DefinitionValidator
 from persistence.loader import load_definitions
@@ -11,6 +13,7 @@ from world.schemas import AppearanceDefinition, CharacterDefinition, ClassDefini
 
 class RegistryBundle:
     def __init__(self, base_path: Path) -> None:
+        self.logger = get_logger(__name__)
         self.validator = DefinitionValidator()
         self._register_schemas()
         self.base_path = base_path
@@ -36,6 +39,7 @@ class RegistryBundle:
         ):
             path = self.base_path / file_name
             if path.exists():
+                log_with_fields(self.logger, logging.INFO, "Loading dataset", path=str(path))
                 datasets[path.stem] = load_definitions(path)
         if "appearances" in datasets:
             self.appearances.load_many(datasets["appearances"])

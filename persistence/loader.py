@@ -1,9 +1,15 @@
 """Utility for loading JSON and YAML data definitions."""
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Any, Dict, List
 import importlib.util
 import json
+import logging
 
+from core.logging_config import get_logger, log_with_fields
+
+logger = get_logger(__name__)
 if importlib.util.find_spec("yaml") is not None:  # pragma: no cover - passthrough
     import yaml
 else:  # pragma: no cover - fallback
@@ -13,8 +19,12 @@ SUPPORTED_EXTENSIONS = {".json", ".yml", ".yaml"}
 
 
 def _read_file(path: Path) -> str:
-    with path.open("r", encoding="utf-8") as handle:
-        return handle.read()
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        log_with_fields(logger, logging.ERROR, "Failed to read file", path=str(path))
+        raise
 
 
 def _parse_yaml_list(raw_text: str) -> Any:
@@ -51,13 +61,15 @@ def _coerce_value(value: str) -> Any:
     return value
 
 
-def _ensure_list(payload: Any) -> List[Dict[str, Any]]:
+def _ensure_list(payload: Any, *, source: Path | None = None) -> List[Dict[str, Any]]:
     if not isinstance(payload, list):
-        raise ValueError("Data files must contain a list of definitions.")
+        source_hint = f" in {source.name}" if source else ""
+        raise ValueError(f"Data files{source_hint} must contain a list of definitions.")
     for index, item in enumerate(payload):
         if not isinstance(item, dict):
             raise ValueError(
-                f"Definition at position {index} is not an object; got {type(item).__name__}."
+                f"Definition at position {index} in {source or 'data file'} is not an object; "
+                f"got {type(item).__name__}."
             )
     return payload
 
@@ -65,12 +77,21 @@ def _ensure_list(payload: Any) -> List[Dict[str, Any]]:
 def load_definitions(path: Path) -> List[Dict[str, Any]]:
     if path.suffix not in SUPPORTED_EXTENSIONS:
         raise ValueError(f"Unsupported file type: {path.suffix}")
+    log_with_fields(logger, logging.INFO, "Loading definitions", path=str(path))
     raw_text = _read_file(path)
     if path.suffix == ".json":
         payload = json.loads(raw_text)
     else:
         payload = _parse_yaml_list(raw_text)
-    return _ensure_list(payload)
+    validated_payload = _ensure_list(payload, source=path)
+    log_with_fields(
+        logger,
+        logging.DEBUG,
+        "Loaded entries",
+        path=str(path),
+        count=len(validated_payload),
+    )
+    return validated_payload
 
 
 def load_from_directory(directory: Path) -> Dict[str, List[Dict[str, Any]]]:

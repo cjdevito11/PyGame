@@ -1,7 +1,35 @@
 """Validation helpers using Pydantic with kid-friendly error messages."""
-from typing import Dict, Type
+from __future__ import annotations
 
+import logging
+from typing import Any, Dict, Iterable, Type
+
+from core.logging_config import get_logger, log_with_fields
 from core.pydantic_compat import BaseModel, ValidationError
+
+
+logger = get_logger(__name__)
+
+
+def _dig_value(data: Dict[str, Any], path: Iterable[object]) -> Any:
+    current: Any = data
+    for part in path:
+        if isinstance(current, dict):
+            current = current.get(part)
+        else:
+            return None
+    return current
+
+
+def _format_error(type_name: str, data: Dict[str, Any], error: Dict[str, object]) -> str:
+    location = ".".join(str(part) for part in error.get("loc", [])) or "<unknown>"
+    value = _dig_value(data, error.get("loc", []))
+    display_value = "<missing>" if value is None else repr(value)
+    entry_name = data.get("name", "<unnamed>")
+    return (
+        f"{type_name}.{entry_name}.{location}: {error.get('msg', 'validation error')} "
+        f"(value: {display_value})"
+    )
 
 
 class DefinitionValidator:
@@ -20,11 +48,25 @@ class DefinitionValidator:
         try:
             model = schema(**data)
         except ValidationError as exc:
-            friendly_errors = "; ".join(
-                f"{error['loc'][0]}: {error['msg']}" for error in exc.errors()
+            formatted_errors = [_format_error(type_name, data, error) for error in exc.errors()]
+            summary = "; ".join(formatted_errors)
+            log_with_fields(
+                logger,
+                logging.WARNING,
+                "Validation failed",
+                type=type_name,
+                entry=data.get("name", "<unnamed>"),
+                errors=summary,
             )
             raise ValueError(
-                f"Could not understand the {type_name} you provided. "
-                f"Please fix these issues: {friendly_errors}"
+                "Could not understand the data you provided. Please fix these issues: "
+                f"{summary}"
             ) from exc
+        log_with_fields(
+            logger,
+            logging.INFO,
+            "Validated entry",
+            type=type_name,
+            entry=data.get("name", "<unnamed>"),
+        )
         return model.dict()
