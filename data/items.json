@@ -10,5 +10,23 @@
     "description": "A reliable blade for starting adventurers.",
     "slot": "mainhand",
     "power": 3
+  },
+  {
+    "name": "oak_shield",
+    "description": "Sturdy planks wrapped in iron to block heavy blows.",
+    "slot": "offhand",
+    "power": 1
+  },
+  {
+    "name": "hunting_bow",
+    "description": "A quick bow favored by scouts.",
+    "slot": "mainhand",
+    "power": 2
+  },
+  {
+    "name": "wolf_pelt",
+    "description": "Trophy from a fallen wolf, still warm.",
+    "slot": "armor",
+    "power": 1
   }
 ]

@@ -1,7 +1,7 @@
 """Shared helpers for building a game context.
 
-This module centralizes registry loading so both the CLI and the Pygame
-prototype share the same data-driven setup.
+This module centralizes registry loading so the real-time Pygame prototype
+can reuse the same data-driven setup used throughout the systems layer.
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +33,14 @@ def build_context(data_path: Path) -> GameContext:
 
     for name in bundle.characters.entries():
         profile = bundle.characters.create(name)
-        combat.register_character(profile.name, profile.class_name, profile.items, gold=profile.gold)
+        combat.register_character(
+            profile.name,
+            profile.class_name,
+            profile.items,
+            gold=profile.gold,
+            level=profile.level,
+            experience=profile.experience,
+        )
 
     economy = EconomySystem(bus, item_registry=bundle.items, combat_system=combat)
     for character in combat.characters.values():
@@ -51,7 +58,20 @@ def build_context(data_path: Path) -> GameContext:
             trigger_event="combat.defeated",
             owner="Aria",
             reward_gold=4,
+            reward_experience=3,
             condition=lambda event: event.payload.get("defender") == "Shade",
         )
+
+    wolf_targets = {"Stray Wolf", "Pack Wolf", "Alpha Wolf"}
+    quests.register_quest(
+        identifier="wolf-threat",
+        description="Hunt the wolf pack menacing the town.",
+        trigger_event="combat.defeated",
+        owner=None,
+        reward_gold=12,
+        reward_experience=8,
+        goal_count=len(wolf_targets),
+        condition=lambda event: event.payload.get("defender") in wolf_targets,
+    )
     log_with_fields(logger, logging.INFO, "Context ready", characters=list(combat.characters))
     return GameContext(bundle=bundle, bus=bus, combat=combat, quests=quests, economy=economy)

@@ -30,3 +30,6 @@ class CharacterDefinition(BaseDefinition):
     appearance: str = Field(..., description="Appearance to display")
     items: list[str] = Field(default=[])
     gold: int = Field(default=0, ge=0)
+    level: int = Field(default=1, ge=1, le=99)
+    experience: int = Field(default=0, ge=0)
+    role: str = Field(default="hero", description="Role tag used to drive spawning and selection")

@@ -53,6 +53,9 @@ class CharacterProfile:
     appearance: str
     items: list[str]
     gold: int
+    level: int
+    experience: int
+    role: str
 
     @classmethod
     def from_definition(cls, name: str, data: Dict) -> "CharacterProfile":
@@ -62,4 +65,7 @@ class CharacterProfile:
             appearance=data["appearance"],
             items=list(data.get("items", [])),
             gold=int(data.get("gold", 0)),
+            level=int(data.get("level", 1)),
+            experience=int(data.get("experience", 0)),
+            role=data.get("role", "hero"),
         )

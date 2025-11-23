@@ -6,3 +6,19 @@
   description: An eerie shape that flickers in the dark.
   symbol: "G"
   color: cyan
+- name: hunter
+  description: Leather-clad ranger with a bright scarf.
+  symbol: "H"
+  color: green
+- name: guardian
+  description: Towering shieldbearer with oak plating.
+  symbol: "Q"
+  color: orange
+- name: wolf
+  description: Grey-furred predator with sharp eyes.
+  symbol: "w"
+  color: lightgrey
+- name: alpha_wolf
+  description: Battle-scarred alpha with darker coat.
+  symbol: "W"
+  color: darkgrey

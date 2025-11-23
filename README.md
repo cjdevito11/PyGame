@@ -1,32 +1,37 @@
 # PyGame
 
-A terminal-friendly demo that shows how to wire data-driven game content using simple registries and schema validation.
+A small Pygame prototype that shows how to wire data-driven game content using simple registries and schema validation.
 
 ## Layout
 
 - `core/`: shared helpers like validation and generic registries.
 - `world/`: runtime entity objects and schemas.
 - `systems/`: wiring and configuration for registries.
-- `ui/`: command-line entry point.
+- `ui/`: real-time Pygame client and context helpers.
 - `persistence/`: YAML/JSON loading utilities.
 - `data/`: sample content files you can edit without touching code.
 - `tests/`: unit tests covering registries, validation, and dynamic loading.
 
 ## Getting started
 
-Install dependencies and try the new real-time Pygame prototype (plus the legacy CLI tools):
+Install dependencies and start the real-time Pygame prototype:
 
 ```bash
 python -m pip install -r requirements.txt
 
-# Real-time prototype (WASD/arrow keys to move, Space to attack)
+# Launch the game client (choose a hero, WASD/arrow keys to move, Space to attack)
 python -m ui.game
-
-# CLI helpers remain for data inspection and validation
-python -m ui.cli list appearances
-python -m ui.cli show classes adventurer
-python -m ui.cli validate
 ```
+
+If you prefer, you can also run the file directly: `python ui/game.py`. Either
+entry point will load the bundled sample data and open the windowed client.
+
+### What to expect in the current adventure
+
+- Start at the character select menu and choose between Aria (balanced blade/shield) or Ronan (ranged hunter).
+- Your first quest is to drive off the wolf pack harassing town—chase down three wolves to finish it.
+- Defeating enemies grants experience and gold; completing quests can also reward experience.
+- Levels increase max HP and make attacks stronger. Loot such as the wolf pelt can boost your damage for the rest of the run.
 
 To add new content, drop another entry into the matching file in `data/`. The schemas keep you honest and will show friendly messages if something is missing.
 
