@@ -142,8 +142,13 @@ class PygameMMO:
         self.dragging_slot: ItemSlot | None = None
         self.drag_offset: Tuple[int, int] = (0, 0)
         self.hovered_slot: ItemSlot | None = None
+        self.zone_boundary_color = pygame.Color(90, 130, 190)
+        self.obstacle_color = pygame.Color(65, 75, 95)
         self.bus.subscribe("quest.completed", self._on_quest_completed)
         self.bus.subscribe("quest.turned_in", self._on_quest_turned_in)
+        self.bus.subscribe("quest.unlocked", self._on_quest_unlocked)
+        self.bus.subscribe("quest.stage_advanced", self._on_quest_stage_advanced)
+        self.bus.subscribe("quest.progress", self._on_quest_progress)
         self.bus.subscribe("zone.changed", self._on_zone_changed)
         self.bus.subscribe("inventory.item_added", self._on_item_added)
 
@@ -167,21 +172,25 @@ class PygameMMO:
         hero_definition = definitions.get(PLAYER_NAME, {})
         hero_appearance = appearances.create(hero_definition.get("appearance", "hero"))
         hero_rect = pygame.Rect((starting_x, starting_y), (54, 54))
+        hero_rect = self._resolve_obstacle_collision(hero_rect, hero_rect, obstacles, zone_rect)
+        hero_rect = self._clamp_to_bounds(hero_rect, zone_rect)
         actors[PLAYER_NAME] = Actor(
             name=PLAYER_NAME,
             color=pygame.Color(hero_appearance.color),
-            rect=self._resolve_obstacle_collision(hero_rect, hero_rect, obstacles, zone_rect),
+            rect=hero_rect,
         )
 
         guide_color = pygame.Color(214, 185, 110)
         guide_rect = pygame.Rect((starting_x + 120, starting_y - 20), (54, 54))
+        guide_rect = self._resolve_obstacle_collision(guide_rect, guide_rect, obstacles, zone_rect)
+        guide_rect = self._clamp_to_bounds(guide_rect, zone_rect)
         actors[QUEST_GIVER_NAME] = Actor(
             name=QUEST_GIVER_NAME,
             color=guide_color,
-            rect=self._resolve_obstacle_collision(guide_rect, guide_rect, obstacles, zone_rect),
+            rect=guide_rect,
             speed=0,
         )
-        self.quest_log.append("Find the Guide and press E to accept the quest.")
+        self.quest_log.append("Check in with the Guide near the fire for available work.")
         return actors
 
     def _zone_rect(self, zone: Zone | None) -> pygame.Rect | None:
@@ -261,6 +270,7 @@ class PygameMMO:
         clamped_y = max(bounds.y, min(bounds.y + bounds.height - entry_rect.height, entry_rect.y))
         entry_rect.x, entry_rect.y = clamped_x, clamped_y
         player.rect = self._resolve_obstacle_collision(player.rect, entry_rect, obstacles, bounds)
+        player.rect = self._clamp_to_bounds(player.rect, bounds)
 
         self.target_spawned = False
         if zone.is_static:
@@ -293,22 +303,32 @@ class PygameMMO:
             dy += player.speed * dt
 
         active_zone = self.context.zones.active_zone
-        bounds = self._zone_rect(active_zone)
-        if bounds:
-            proposed = pygame.Rect(
-                (int(player.rect.x + dx), int(player.rect.y + dy)), (player.rect.width, player.rect.height)
-            )
-            direction = self._detect_boundary_crossing(proposed, bounds)
-            if direction:
-                self._transition_zone(direction)
-                return
+        try:
+            bounds = self._zone_rect(active_zone)
+            if bounds:
+                proposed = pygame.Rect(
+                    (int(player.rect.x + dx), int(player.rect.y + dy)), (player.rect.width, player.rect.height)
+                )
+                direction = self._detect_boundary_crossing(proposed, bounds)
+                if direction:
+                    self._transition_zone(direction)
+                    return
 
-            clamped_x = max(bounds.x, min(bounds.x + bounds.width - player.rect.width, proposed.x))
-            clamped_y = max(bounds.y, min(bounds.y + bounds.height - player.rect.height, proposed.y))
-            candidate = pygame.Rect((clamped_x, clamped_y), (player.rect.width, player.rect.height))
-            obstacles = self._zone_obstacles(active_zone)
-            player.rect = self._resolve_obstacle_collision(player.rect, candidate, obstacles, bounds)
-        else:
+                clamped_x = max(bounds.x, min(bounds.x + bounds.width - player.rect.width, proposed.x))
+                clamped_y = max(bounds.y, min(bounds.y + bounds.height - player.rect.height, proposed.y))
+                candidate = pygame.Rect((clamped_x, clamped_y), (player.rect.width, player.rect.height))
+                obstacles = self._zone_obstacles(active_zone)
+                player.rect = self._resolve_obstacle_collision(player.rect, candidate, obstacles, bounds)
+            else:
+                player.move(dx, dy, SCREEN_SIZE)
+        except Exception as exc:  # pragma: no cover - defensive bounds guard
+            log_with_fields(
+                logger,
+                logging.ERROR,
+                "Failed to process movement within bounds",
+                error=str(exc),
+                zone=getattr(active_zone, "name", "none"),
+            )
             player.move(dx, dy, SCREEN_SIZE)
 
         self.tutorial.record_movement(dx, dy)
@@ -328,9 +348,76 @@ class PygameMMO:
             return True
         return False
 
-    def _quest_status(self) -> str:
-        record = self.context.quests.quests.get("defeat-shade")
-        return record.status if record else "unknown"
+    def _quests(self) -> list:
+        return list(self.context.quests.quests.values())
+
+    def _active_quest(self):
+        if not self.context.quests.quests:
+            return None
+        priorities = ("accepted", "completed", "available", "locked")
+        for status in priorities:
+            quest = next((q for q in self._quests() if q.status == status), None)
+            if quest:
+                return quest
+        return next(iter(self._quests()), None)
+
+    def _active_stage(self, quest):
+        if quest and quest.stages and quest.current_stage < len(quest.stages):
+            return quest.stages[quest.current_stage]
+        return None
+
+    def _quest_targets(self, quest) -> Dict[str, int]:
+        if not quest:
+            return {}
+        stage = self._active_stage(quest)
+        if stage and stage.target_monsters:
+            return stage.target_monsters
+        return quest.target_monsters or {}
+
+    def _quest_progress_summary(self, quest) -> str | None:
+        targets = self._quest_targets(quest)
+        if not quest or not targets:
+            return None
+        progress = quest.progress
+        if quest.stages and quest.current_stage < len(quest.stage_progress):
+            progress = quest.stage_progress[quest.current_stage]
+        segments = [f"{name}: {progress.get(name, 0)}/{count}" for name, count in targets.items()]
+        return ", ".join(segments)
+
+    def _quest_prompts(self) -> list[str]:
+        quest = self._active_quest()
+        if not quest:
+            return [f"Talk to {QUEST_GIVER_NAME} for guidance."]
+
+        prompts: list[str] = []
+        stage = self._active_stage(quest)
+        description = stage.description if stage else quest.description
+        progress = self._quest_progress_summary(quest)
+
+        if quest.status == "available":
+            prompts.append(f"Press E near the Guide to accept: {description}")
+        elif quest.status == "accepted":
+            prompts.append(f"Objective: {description}")
+            if progress:
+                prompts.append(f"Progress: {progress}")
+        elif quest.status == "completed":
+            prompts.append(f"Return to {QUEST_GIVER_NAME} to turn in {quest.description}.")
+        elif quest.status == "locked":
+            prereqs = ", ".join(quest.prerequisites)
+            prompts.append(f"Complete {prereqs} to unlock the next task.")
+        else:
+            prompts.append(f"Quest complete: {quest.description}.")
+
+        return prompts
+
+    def _target_quest(self):
+        for quest in self._quests():
+            if quest.status != "accepted":
+                continue
+            targets = self._quest_targets(quest)
+            if targets and self.target_name in targets:
+                return quest
+        return None
 
     def _player_near(self, actor_name: str, radius: int = 12) -> bool:
         player = self.actors.get(PLAYER_NAME)
@@ -343,14 +430,29 @@ class PygameMMO:
         if not self._player_near(QUEST_GIVER_NAME):
             return False
 
-        status = self._quest_status()
-        if status == "available":
-            self.bus.publish("quest.accepted", quest="defeat-shade", owner=PLAYER_NAME)
-            self.quest_log.append("Quest accepted: Defeat Shade before returning to the Guide.")
+        self.bus.publish("npc.talked", npc=QUEST_GIVER_NAME, owner=PLAYER_NAME)
+        completed = [quest for quest in self._quests() if quest.status == "completed"]
+        if completed:
+            quest = completed[0]
+            self.bus.publish("quest.turned_in", quest=quest.identifier, owner=PLAYER_NAME)
+            self.quest_log.append(f"Quest turned in: {quest.description}.")
+            self.target_spawned = False
             return True
-        if status == "completed":
-            self.bus.publish("quest.turned_in", quest="defeat-shade", owner=PLAYER_NAME)
-            self.quest_log.append("Quest turned in: The Guide rewards your effort.")
+
+        available = [quest for quest in self._quests() if quest.status == "available"]
+        if available:
+            quest = available[0]
+            self.bus.publish("quest.accepted", quest=quest.identifier, owner=PLAYER_NAME)
+            self.quest_log.append(f"Quest accepted: {quest.description}.")
+            if self.target_name in self._quest_targets(quest):
+                self.target_defeated = False
+                self.target_spawned = False
+            return True
+
+        locked = [quest for quest in self._quests() if quest.status == "locked"]
+        if locked:
+            prereqs = ", ".join(locked[0].prerequisites)
+            self.quest_log.append(f"Finish {prereqs} before taking on a new task.")
             return True
         return False
 
@@ -407,32 +509,38 @@ class PygameMMO:
 
     def _maybe_spawn_target(self) -> None:
         zone = self.context.zones.active_zone
-        if (
-            self.target_spawned
-            or self._quest_status() != "accepted"
-            or not self._zone_allows_target(zone)
-        ):
+        quest = self._target_quest()
+        if self.target_spawned or not quest or not self._zone_allows_target(zone):
             return
 
-        definitions = self.context.bundle.characters.definitions()
-        appearances = self.context.bundle.appearances
-        appearance_name = definitions[self.target_name]["appearance"]
-        appearance = appearances.create(appearance_name)
-        zone = self.context.zones.active_zone
-        bounds = self._zone_rect(zone) or pygame.Rect((0, 0), SCREEN_SIZE)
-        spawn_x = bounds.x + bounds.width - 220
-        spawn_y = bounds.y + bounds.height // 2
-        target_rect = pygame.Rect((spawn_x, spawn_y), (54, 54))
-        target_rect = self._resolve_obstacle_collision(
-            target_rect, target_rect, self._zone_obstacles(zone), bounds
-        )
-        self.actors[self.target_name] = Actor(
-            name=self.target_name,
-            color=pygame.Color(appearance.color),
-            rect=target_rect,
-        )
-        self.target_spawned = True
-        self.quest_log.append("Shade has appeared beyond the campfire.")
+        try:
+            definitions = self.context.bundle.characters.definitions()
+            appearances = self.context.bundle.appearances
+            appearance_name = definitions[self.target_name]["appearance"]
+            appearance = appearances.create(appearance_name)
+            bounds = self._zone_rect(zone) or pygame.Rect((0, 0), SCREEN_SIZE)
+            spawn_x = bounds.x + bounds.width - 220
+            spawn_y = bounds.y + bounds.height // 2
+            target_rect = pygame.Rect((spawn_x, spawn_y), (54, 54))
+            target_rect = self._resolve_obstacle_collision(
+                target_rect, target_rect, self._zone_obstacles(zone), bounds
+            )
+            target_rect = self._clamp_to_bounds(target_rect, bounds)
+            self.actors[self.target_name] = Actor(
+                name=self.target_name,
+                color=pygame.Color(appearance.color),
+                rect=target_rect,
+            )
+            self.target_spawned = True
+            self.quest_log.append(f"{self.target_name} has appeared beyond the campfire.")
+        except Exception as exc:  # pragma: no cover - defensive spawn guard
+            log_with_fields(
+                logger,
+                logging.ERROR,
+                "Failed to spawn quest target within bounds",
+                error=str(exc),
+                zone=getattr(zone, "name", "unknown"),
+            )
 
     def _zone_allows_target(self, zone: Zone | None) -> bool:
         if not zone:
@@ -828,6 +936,10 @@ class PygameMMO:
         screen.fill(BACKGROUND)
         assert self.font is not None
 
+        zone = self.context.zones.active_zone
+        if zone:
+            self._render_zone(screen, zone)
+
         for name, actor in self.actors.items():
             pygame.draw.rect(screen, actor.color, actor.rect, border_radius=6)
             combatant = self.context.combat.characters.get(name)
@@ -843,7 +955,8 @@ class PygameMMO:
         line_height = 22
         section_spacing = 10
 
-        status = self._quest_status()
+        quest = self._active_quest()
+        status = quest.status if quest else "none"
         y_cursor = margin
 
         if self.context.zones.active_zone:
@@ -866,14 +979,7 @@ class PygameMMO:
         prompts.append("Press I to toggle your inventory. Drag items to equip, sell, or drop.")
         prompts.append("Click monsters to attack when you're in range.")
 
-        if status == "available":
-            prompts.append("Press E near the Guide to accept the quest.")
-        elif status == "accepted":
-            prompts.append("Hunt down Shade. Tap Space to attack when in range.")
-        elif status == "completed":
-            prompts.append("Return to the Guide and press E to turn in the quest.")
-        elif status == "turned_in":
-            prompts.append("Quest complete! Explore the camp at your pace.")
+        prompts.extend(self._quest_prompts())
 
         for message in prompts:
             prompt = self.font.render(message, True, (200, 200, 200))
@@ -901,6 +1007,34 @@ class PygameMMO:
 
         pygame.display.flip()
 
+    def _render_zone(self, screen: pygame.Surface, zone: Zone) -> None:
+        bounds = self._zone_rect(zone)
+        if not bounds:
+            return
+        pygame.draw.rect(screen, (28, 34, 46), bounds, border_radius=12)
+        pygame.draw.rect(screen, self.zone_boundary_color, bounds, width=5, border_radius=12)
+
+        for obstacle in self._zone_obstacles(zone):
+            pygame.draw.rect(screen, self.obstacle_color, obstacle, border_radius=6)
+            pygame.draw.rect(screen, (120, 140, 170), obstacle, width=2, border_radius=6)
+
+    def _clamp_to_bounds(self, rect: pygame.Rect, bounds: pygame.Rect) -> pygame.Rect:
+        clamped = pygame.Rect(
+            max(bounds.x, min(bounds.x + bounds.width - rect.width, rect.x)),
+            max(bounds.y, min(bounds.y + bounds.height - rect.height, rect.y)),
+            rect.width,
+            rect.height,
+        )
+        if clamped != rect:
+            log_with_fields(
+                logger,
+                logging.WARNING,
+                "Clamped actor to zone bounds",
+                original=(rect.x, rect.y, rect.width, rect.height),
+                clamped=(clamped.x, clamped.y, clamped.width, clamped.height),
+            )
+        return clamped
+
     def _handle_defeat(self) -> None:
         defender = self.context.combat.characters.get(self.target_name)
         if defender and defender.hit_points <= 0 and not self.target_defeated:
@@ -908,18 +1042,50 @@ class PygameMMO:
             self.target_defeated = True
             self.target_spawned = False
             self.actors.pop(self.target_name, None)
-            self.quest_log.append("Shade is defeated. Return to the Guide.")
+            self.quest_log.append(f"{self.target_name} is defeated.")
+            target_quest = self._target_quest()
+            if target_quest:
+                self.quest_log.append(f"Return to {QUEST_GIVER_NAME} to turn in {target_quest.description}.")
 
     def _on_quest_completed(self, event) -> None:
-        quest_name = event.payload["quest"]
-        self.quest_log.append(f"Quest objective complete: {quest_name}.")
+        quest_id = event.payload["quest"]
+        record = self.context.quests.quests.get(quest_id)
+        description = record.description if record else quest_id
+        self.quest_log.append(f"Quest objective complete: {description}.")
 
     def _on_quest_turned_in(self, event) -> None:
+        quest_id = event.payload.get("quest", "")
+        record = self.context.quests.quests.get(quest_id)
+        description = record.description if record else quest_id
+        self.quest_log.append(f"Turned in quest: {description}.")
+
         reward = event.payload.get("reward_gold")
         if reward:
             self.quest_log.append(f"Received {reward} gold from the Guide.")
-        else:
+        items = event.payload.get("reward_items") or []
+        if items:
+            named = ", ".join(item.replace("_", " ").title() for item in items)
+            self.quest_log.append(f"Received items: {named}.")
+        if not reward and not items:
             self.quest_log.append("The Guide thanks you for your help.")
+
+    def _on_quest_unlocked(self, event) -> None:
+        quest_id = event.payload.get("quest", "an unknown task")
+        self.quest_log.append(f"New quest available: {quest_id}.")
+
+    def _on_quest_stage_advanced(self, event) -> None:
+        quest_id = event.payload.get("quest", "quest")
+        description = event.payload.get("description", "Next objective ready.")
+        self.quest_log.append(f"{quest_id} advanced: {description}")
+
+    def _on_quest_progress(self, event) -> None:
+        quest_id = event.payload.get("quest")
+        progress = event.payload.get("progress", {})
+        defeated = event.payload.get("defeated")
+        if not quest_id or defeated is None:
+            return
+        target_text = ", ".join(f"{name}: {count}" for name, count in progress.items())
+        self.quest_log.append(f"Progress for {quest_id}: {target_text}.")
 
     def _on_item_added(self, event) -> None:
         owner = event.payload.get("owner")

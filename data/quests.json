@@ -1,7 +1,27 @@
 [
   {
+    "identifier": "scout-outskirts",
+    "description": "Scout the outskirts and return with a quick report.",
+    "trigger_event": "zone.changed",
+    "owner": "Guide",
+    "reward_gold": 1,
+    "reward_attributes": {"agility": 1},
+    "stages": [
+      {
+        "description": "Step beyond the camp boundary into any neighboring zone.",
+        "trigger_event": "zone.changed"
+      },
+      {
+        "description": "Return to camp to share what you saw.",
+        "trigger_event": "zone.changed",
+        "condition_field": "current",
+        "condition_value": "camp"
+      }
+    ]
+  },
+  {
     "identifier": "defeat-shade",
-    "description": "Defeat Shade to earn pocket money and sharpen your training.",
+    "description": "Hunt the pack leader Shade before returning to the Guide.",
     "trigger_event": "combat.defeated",
     "owner": "Aria",
     "reward_gold": 4,
@@ -12,5 +32,37 @@
     "condition_value": "Shade",
     "target_monsters": {"Shade": 1},
     "loot_queue": ["quest_relic"]
+  },
+  {
+    "identifier": "report-back",
+    "description": "Report back to the Guide after clearing the threat.",
+    "trigger_event": "npc.talked",
+    "owner": "Guide",
+    "reward_gold": 3,
+    "prerequisites": ["defeat-shade"],
+    "stages": [
+      {
+        "description": "Speak with the Guide about what you found.",
+        "trigger_event": "npc.talked",
+        "condition_field": "npc",
+        "condition_value": "Guide"
+      }
+    ]
+  },
+  {
+    "identifier": "secure-supplies",
+    "description": "Secure supplies for the road ahead.",
+    "trigger_event": "npc.talked",
+    "owner": "Guide",
+    "reward_items": ["speed_potion"],
+    "prerequisites": ["report-back"],
+    "stages": [
+      {
+        "description": "Ask the Guide for a supply satchel.",
+        "trigger_event": "npc.talked",
+        "condition_field": "npc",
+        "condition_value": "Guide"
+      }
+    ]
   }
 ]
