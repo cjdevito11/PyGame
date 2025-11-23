@@ -127,10 +127,12 @@ class PygameMMO:
         self.running = False
         self.font: pygame.font.Font | None = None
         self.screen_size = SCREEN_SIZE
+        self.background = BACKGROUND
         self.quest_log: list[str] = []
         self.target_spawned = False
         self.target_defeated = False
         self.zone_prompt: str = ""
+        self._apply_zone_settings(context.zones.active_zone)
         self.actors: Dict[str, Actor] = self._spawn_start_area()
         self.tutorial = TutorialManager()
         self.show_inventory = False
@@ -154,6 +156,13 @@ class PygameMMO:
         self.bus.subscribe("inventory.item_added", self._on_item_added)
         self.show_objective_indicator = True
 
+    def _apply_zone_settings(self, zone: Zone | None) -> None:
+        settings = self.context.zones.map_settings()
+        size = settings.get("size", SCREEN_SIZE)
+        if isinstance(size, tuple) and len(size) == 2:
+            self.screen_size = (int(size[0]), int(size[1]))
+        self.background = settings.get("background", BACKGROUND)
+
     def _spawn_start_area(self) -> Dict[str, Actor]:
         definitions = self.context.bundle.characters.definitions()
         appearances = self.context.bundle.appearances
@@ -173,7 +182,8 @@ class PygameMMO:
         hero_definition = definitions.get(PLAYER_NAME, {})
         hero_appearance = appearances.create(hero_definition.get("appearance", "hero"))
         hero_rect = pygame.Rect((0, 0), (54, 54))
-        hero_rect.center = (zone_center[0] - 80, zone_center[1] + 60)
+        hero_spawn = zone.get_spawn_point("player", (zone_center[0] - 80, zone_center[1] + 60)) if zone else None
+        hero_rect.center = hero_spawn or (zone_center[0] - 80, zone_center[1] + 60)
         hero_rect = self._resolve_obstacle_collision(hero_rect, hero_rect, obstacles, zone_rect)
         hero_rect = self._clamp_to_bounds(hero_rect, zone_rect)
         actors[PLAYER_NAME] = Actor(
@@ -184,7 +194,8 @@ class PygameMMO:
 
         guide_color = pygame.Color(214, 185, 110)
         guide_rect = pygame.Rect((0, 0), (54, 54))
-        guide_rect.center = zone_center
+        guide_spawn = zone.get_spawn_point("quest_giver", zone_center) if zone else zone_center
+        guide_rect.center = guide_spawn
         guide_rect = self._resolve_obstacle_collision(guide_rect, guide_rect, obstacles, zone_rect)
         guide_rect = self._clamp_to_bounds(guide_rect, zone_rect)
         actors[QUEST_GIVER_NAME] = Actor(
@@ -264,11 +275,14 @@ class PygameMMO:
 
         self.actors = {PLAYER_NAME: player}
         self.zone_prompt = f"{zone.name.title()}: {zone.description}"
+        self._apply_zone_settings(zone)
         bounds = self._zone_rect(zone) or pygame.Rect((0, 0), self.screen_size)
         obstacles = self._zone_obstacles(zone)
         rng = Random(f"{zone.name}-{zone.danger_level}")
 
         entry_rect = self._entry_position_for_zone(player, zone, direction)
+        spawn_center = zone.get_spawn_point("player", (entry_rect.centerx, entry_rect.centery))
+        entry_rect.center = spawn_center
         clamped_x = max(bounds.x, min(bounds.x + bounds.width - entry_rect.width, entry_rect.x))
         clamped_y = max(bounds.y, min(bounds.y + bounds.height - entry_rect.height, entry_rect.y))
         entry_rect.x, entry_rect.y = clamped_x, clamped_y
@@ -279,7 +293,8 @@ class PygameMMO:
         if zone.is_static:
             guide_color = pygame.Color(214, 185, 110)
             guide_rect = pygame.Rect((0, 0), (54, 54))
-            guide_rect.center = bounds.center
+            guide_spawn = zone.get_spawn_point("quest_giver", bounds.center)
+            guide_rect.center = guide_spawn
             resolved = self._resolve_obstacle_collision(player.rect, guide_rect, obstacles, bounds)
             self.actors[QUEST_GIVER_NAME] = Actor(
                 name=QUEST_GIVER_NAME,
@@ -908,11 +923,7 @@ class PygameMMO:
         if current.is_static:
             next_zone = self.context.zones.spawn_outdoor_zone()
         else:
-            destination = (
-                "town"
-                if "town" in self.context.zones.static_zones
-                else next(iter(self.context.zones.static_zones), None)
-            )
+            destination = next(iter(self.context.zones.static_zones), None)
             if destination:
                 next_zone = self.context.zones.set_active(destination)
             else:
@@ -993,7 +1004,7 @@ class PygameMMO:
         pygame.draw.polygon(screen, color, [arrow_tip, arrow_left, arrow_right])
 
     def _render(self, screen: pygame.Surface) -> None:
-        screen.fill(BACKGROUND)
+        screen.fill(self.background)
         assert self.font is not None
 
         zone = self.context.zones.active_zone
@@ -1168,12 +1179,6 @@ class PygameMMO:
     def run(self) -> None:
         pygame.init()
         self.font = pygame.font.SysFont("arial", 18)
-        try:
-            display_info = pygame.display.Info()
-            self.screen_size = (display_info.current_w, display_info.current_h)
-        except Exception:  # pragma: no cover - fallback for unexpected driver issues
-            self.screen_size = SCREEN_SIZE
-
         try:
             screen = pygame.display.set_mode(self.screen_size, pygame.FULLSCREEN)
         except Exception as exc:  # pragma: no cover - defensive video fallback

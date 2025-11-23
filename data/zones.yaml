@@ -6,6 +6,10 @@
     width: 960
     height: 640
   danger_level: "none"
+  background: "#101218"
+  theme: "hearth"
+  seed: 1337
+  start_zone: true
   spawn_rules:
     - spawn: "vendor"
       weight: 1
@@ -13,6 +17,20 @@
     - spawn: "campfire"
       weight: 1
       max_count: 1
+  spawn_points:
+    player:
+      x: 260
+      y: 480
+    quest_giver:
+      x: 480
+      y: 340
+    east_exit:
+      x: 900
+      y: 320
+  encounter_tables:
+    ambient:
+      - table: "campfire-stories"
+        weight: 1
   obstacles:
     - x: 0
       y: 0
@@ -51,6 +69,8 @@
     width: 1200
     height: 760
   danger_level: "low"
+  background: "#0f0f18"
+  theme: "frontier"
   spawn_rules:
     - spawn: "villager"
       weight: 4
@@ -61,6 +81,22 @@
     - spawn: "trader"
       weight: 1
       max_count: 3
+  spawn_points:
+    player:
+      x: 320
+      y: 520
+    quest_giver:
+      x: 640
+      y: 320
+    west_exit:
+      x: 60
+      y: 360
+  encounter_tables:
+    patrols:
+      - table: "town-guards"
+        weight: 2
+      - table: "street-merchants"
+        weight: 1
   obstacles:
     - x: 0
       y: 0

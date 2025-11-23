@@ -19,7 +19,7 @@ from systems.ai import AISystem, BehaviorProfile
 from systems.crafting import CraftingSystem
 from systems.movement import MovementSystem, Position
 from persistence.loader import load_definitions
-from world.zones import ZoneManager
+from world.zones import ZoneRegistry
 
 
 logger = get_logger(__name__)
@@ -32,7 +32,7 @@ class GameContext:
     combat: CombatSystem
     quests: QuestSystem
     economy: EconomySystem
-    zones: ZoneManager
+    zones: ZoneRegistry
     movement: MovementSystem | None = None
     ai: AISystem | None = None
     crafting: CraftingSystem | None = None
@@ -117,11 +117,7 @@ def build_context(data_path: Path) -> GameContext:
             target_monsters={"Shade": 1},
             loot_queue=["quest_relic"],
         )
-    zones = ZoneManager([bundle.zones.create(name) for name in bundle.zones.entries()])
-    if "town" in bundle.zones.entries():
-        zones.set_active("town")
-    elif "camp" in bundle.zones.entries():
-        zones.set_active("camp")
+    zones = ZoneRegistry([bundle.zones.create(name) for name in bundle.zones.entries()])
     movement = MovementSystem(bus)
     for name in combat.characters:
         movement.set_position(name, movement.positions.get(name, Position(0, 0)))
