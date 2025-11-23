@@ -269,6 +269,33 @@ class PygameMMO:
         self.state = "playing"
         self.messages.clear()
 
+    def _record_defeat(self, event: object) -> None:
+        if isinstance(event, object) and hasattr(event, "payload"):
+            defender = getattr(event, "payload", {}).get("defender")
+            attacker = getattr(event, "payload", {}).get("attacker")
+            self.messages.append(f"{attacker} defeated {defender}!")
+
+    def _record_quest_completion(self, event: object) -> None:
+        if isinstance(event, object) and hasattr(event, "payload"):
+            quest = getattr(event, "payload", {}).get("quest")
+            reward_gold = getattr(event, "payload", {}).get("reward_gold", 0)
+            reward_xp = getattr(event, "payload", {}).get("reward_experience", 0)
+            owner = getattr(event, "payload", {}).get("owner")
+            self.messages.append(f"Quest '{quest}' complete! +{reward_gold}g, +{reward_xp}xp to {owner}")
+
+    def _record_experience(self, event: object) -> None:
+        if isinstance(event, object) and hasattr(event, "payload"):
+            payload = getattr(event, "payload", {})
+            if payload.get("leveled_up"):
+                self.messages.append(f"{payload.get('character')} reached level {payload.get('level')}!")
+
+    def _start_adventure(self) -> None:
+        options = list(self.playable_definitions)
+        if options:
+            self.player_name = options[self.selection_index % len(options)]
+        self.actors = self._spawn_actors()
+        self.state = "playing"
+
     def run(self) -> None:
         pygame.init()
         self.font = pygame.font.SysFont("arial", 18)
