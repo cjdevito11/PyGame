@@ -1,0 +1,62 @@
+[
+  {
+    "name": "fireball",
+    "description": "Hurl a flaming orb with splash potential.",
+    "class_name": "mage",
+    "resource_type": "mana",
+    "cost": 3,
+    "cooldown_turns": 2,
+    "gcd_turns": 1,
+    "power": 4,
+    "heal": 0,
+    "range": 6,
+    "school": "fire",
+    "cast_time": 0.5,
+    "tags": ["aoe", "burn"]
+  },
+  {
+    "name": "arcane_blast",
+    "description": "Fast single-target burst with short cooldown.",
+    "class_name": "mage",
+    "resource_type": "mana",
+    "cost": 2,
+    "cooldown_turns": 1,
+    "gcd_turns": 1,
+    "power": 3,
+    "heal": 0,
+    "range": 5,
+    "school": "arcane",
+    "cast_time": 0.25,
+    "tags": ["burst"]
+  },
+  {
+    "name": "quick_strike",
+    "description": "A light blade attack that fills the global cooldown.",
+    "class_name": "adventurer",
+    "resource_type": "energy",
+    "cost": 2,
+    "cooldown_turns": 1,
+    "gcd_turns": 1,
+    "power": 2,
+    "heal": 0,
+    "range": 1,
+    "school": "physical",
+    "cast_time": 0.0,
+    "tags": ["melee"]
+  },
+  {
+    "name": "second_wind",
+    "description": "Recover health through grit instead of magic.",
+    "class_name": "adventurer",
+    "resource_type": "energy",
+    "cost": 4,
+    "cooldown_turns": 3,
+    "gcd_turns": 1,
+    "power": 0,
+    "heal": 3,
+    "range": 0,
+    "school": "physical",
+    "cast_time": 0.0,
+    "tags": ["self", "heal"]
+  }
+]

@@ -2,7 +2,15 @@
   description: Balanced stats for beginners.
   hit_points: 12
   mana: 5
+  resource_type: energy
+  resource_max: 12
+  resource_regen: 1
+  gcd_seconds: 1.5
 - name: mage
   description: Weak body but powerful spells.
   hit_points: 8
   mana: 15
+  resource_type: mana
+  resource_max: 18
+  resource_regen: 2
+  gcd_seconds: 1.2

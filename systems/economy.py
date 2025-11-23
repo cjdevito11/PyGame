@@ -32,6 +32,9 @@ class EconomySystem:
         self.bus.subscribe("quest.completed", self._handle_reward)
         self.bus.subscribe("economy.reward", self._handle_reward)
         self.bus.subscribe("economy.purchase", self._handle_purchase)
+        self.bus.subscribe("economy.sell", self._handle_sell)
+        self.bus.subscribe("economy.repair", self._handle_repair)
+        self.bus.subscribe("trade.execute", self._handle_trade)
 
     def sync_wallet(self, name: str, gold: int) -> None:
         self.wallets[name] = gold
@@ -67,7 +70,7 @@ class EconomySystem:
             raise ValueError(f"{buyer} cannot afford {item_name}")
 
         self.wallets[buyer] = balance - final_price
-        self.combat_system.add_item(buyer, item_name)
+        self.combat_system.add_item(buyer, item_name, reason="purchase")
         log_with_fields(
             self.logger,
             logging.INFO,
@@ -78,3 +81,77 @@ class EconomySystem:
             remaining_gold=self.wallets[buyer],
         )
         return {"remaining_gold": self.wallets[buyer], "item": item_name}
+
+    def _handle_sell(self, event: Event) -> Dict[str, object]:
+        seller = event.payload["seller"]
+        store_name = event.payload["store"]
+        item_name = event.payload["item"]
+        price_lookup = self.stores.get(store_name, {})
+        base_price = price_lookup.get(item_name)
+        if base_price is None:
+            raise KeyError(f"{store_name} does not buy {item_name}")
+
+        removed = self.combat_system.remove_item(seller, item_name)
+        if not removed:
+            raise ValueError(f"{seller} cannot sell what they do not own")
+
+        payout = max(1, base_price // 2)
+        self.wallets[seller] = self.wallets.get(seller, 0) + payout
+        log_with_fields(
+            self.logger,
+            logging.INFO,
+            "Item sold",
+            seller=seller,
+            store=store_name,
+            item=item_name,
+            payout=payout,
+            balance=self.wallets[seller],
+        )
+        return {"payout": payout, "balance": self.wallets[seller]}
+
+    def _handle_repair(self, event: Event) -> Dict[str, object]:
+        owner = event.payload["owner"]
+        item_name = event.payload["item"]
+        rate = int(event.payload.get("rate", 1))
+        details = self.combat_system.repair_item(owner, item_name)
+        cost = details["restored"] * rate
+        balance = self.wallets.get(owner, 0)
+        if balance < cost:
+            raise ValueError(f"{owner} cannot afford repairs for {item_name}")
+        self.wallets[owner] = balance - cost
+        log_with_fields(
+            self.logger,
+            logging.INFO,
+            "Repaired gear",
+            owner=owner,
+            item=item_name,
+            cost=cost,
+            balance=self.wallets[owner],
+        )
+        return {"cost": cost, "balance": self.wallets[owner]}
+
+    def _handle_trade(self, event: Event) -> Dict[str, object]:
+        giver = event.payload["giver"]
+        receiver = event.payload["receiver"]
+        items: list[str] = event.payload.get("items", [])
+        gold: int = int(event.payload.get("gold", 0))
+
+        for item_name in items:
+            item = self.combat_system.remove_item(giver, item_name)
+            if item:
+                self.combat_system.add_item(receiver, item_name, reason="trade")
+
+        if gold:
+            self.wallets[giver] = self.wallets.get(giver, 0) - gold
+            self.wallets[receiver] = self.wallets.get(receiver, 0) + gold
+
+        log_with_fields(
+            self.logger,
+            logging.INFO,
+            "Trade completed",
+            giver=giver,
+            receiver=receiver,
+            items=len(items),
+            gold=gold,
+        )
+        return {"giver": giver, "receiver": receiver, "items": items, "gold": gold}

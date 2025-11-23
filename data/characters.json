@@ -5,7 +5,8 @@
     "class_name": "adventurer",
     "appearance": "hero",
     "items": ["bronze_sword"],
-    "gold": 5
+    "gold": 5,
+    "family": "human"
   },
   {
     "name": "Shade",
@@ -13,6 +14,7 @@
     "class_name": "mage",
     "appearance": "ghost",
     "items": ["lantern"],
-    "gold": 3
+    "gold": 3,
+    "family": "wraith"
   }
 ]
