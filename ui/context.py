@@ -43,6 +43,14 @@ def build_context(data_path: Path) -> GameContext:
 
     bundle = RegistryBundle(data_path)
     bundle.load()
+    log_with_fields(
+        logger,
+        logging.INFO,
+        "Datasets loaded",
+        zones=len(bundle.zones.definitions()),
+        characters=len(bundle.characters.definitions()),
+        items=len(bundle.items.definitions()),
+    )
     bus = EventBus()
     combat = CombatSystem(
         bus,
@@ -117,8 +125,26 @@ def build_context(data_path: Path) -> GameContext:
             target_monsters={"Shade": 1},
             loot_queue=["quest_relic"],
         )
-    zones = ZoneRegistry([bundle.zones.create(name) for name in bundle.zones.entries()])
+    static_zones = [bundle.zones.create(name) for name in bundle.zones.entries()]
+    if not static_zones:
+        log_with_fields(logger, logging.WARNING, "No zones defined; falling back to generated wilderness")
+    zones = ZoneRegistry(static_zones)
+    if not zones.active_zone and static_zones:
+        log_with_fields(logger, logging.WARNING, "No start zone flagged; defaulting to first entry")
+        zones.set_active(static_zones[0].name)
+    log_with_fields(
+        logger,
+        logging.INFO,
+        "Zone registry ready",
+        available=zones.static_zones,
+        active=getattr(zones.active_zone, "name", "<none>"),
+    )
     movement = MovementSystem(bus)
+    active_zone = zones.active_zone
+    player_spawn = active_zone.get_spawn_point("player", (0, 0)) if active_zone else (0, 0)
+    movement.set_position("Aria", Position(*player_spawn))
+    guide_spawn = (active_zone.get_spawn_point("quest_giver", player_spawn) if active_zone else player_spawn)
+    movement.set_position("Guide", Position(*guide_spawn))
     for name in combat.characters:
         movement.set_position(name, movement.positions.get(name, Position(0, 0)))
     ai = AISystem(

@@ -148,8 +148,13 @@ class Zone:
             "seed": self.seed,
         }
 
+    def has_spawn(self, spawn_name: str) -> bool:
+        return any(rule.spawn == spawn_name for rule in self.spawn_rules)
 
-def create_outdoor_zone(*, seed: int | None = None, danger_level: str | None = None) -> Zone:
+
+def create_outdoor_zone(
+    *, seed: int | None = None, danger_level: str | None = None, focus_spawn: str | None = None
+) -> Zone:
     """Generate a lightweight procedural wilderness zone."""
 
     rng = Random(seed)
@@ -180,6 +185,8 @@ def create_outdoor_zone(*, seed: int | None = None, danger_level: str | None = N
     rng.shuffle(shuffled_rules)
     chosen_rules = shuffled_rules[: rng.randint(2, len(shuffled_rules))]
     spawn_rules = [SpawnRule.from_definition(rule) for rule in chosen_rules]
+    if focus_spawn and all(rule.spawn != focus_spawn for rule in spawn_rules):
+        spawn_rules.append(SpawnRule(spawn=focus_spawn, weight=1, max_count=1))
 
     generated_danger = danger_level or rng.choice(["low", "medium", "high"])
 
@@ -199,6 +206,7 @@ def create_outdoor_zone(*, seed: int | None = None, danger_level: str | None = N
     spawn_points = {
         "player": SpawnPoint(bounds.x + bounds.width // 2 - 80, bounds.y + bounds.height // 2 + 60),
         "quest_giver": SpawnPoint(bounds.x + bounds.width // 2, bounds.y + bounds.height // 2),
+        "quest_target": SpawnPoint(bounds.x + bounds.width // 2 + 180, bounds.y + bounds.height // 2),
     }
 
     encounter_tables = {
@@ -259,8 +267,10 @@ class ZoneRegistry:
         self._active_zone = self._static_zones[name]
         return self._active_zone
 
-    def spawn_outdoor_zone(self, **kwargs) -> Zone:
-        zone = self._procedural_factory(**kwargs)
+    def spawn_outdoor_zone(
+        self, *, seed: int | None = None, danger_level: str | None = None, focus_spawn: str | None = None
+    ) -> Zone:
+        zone = self._procedural_factory(seed=seed, danger_level=danger_level, focus_spawn=focus_spawn)
         self._generated_zones.append(zone)
         self._active_zone = zone
         return zone
