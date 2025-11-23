@@ -154,6 +154,7 @@ class PygameMMO:
         self.zone_boundary_color = pygame.Color(90, 130, 190)
         self.obstacle_color = pygame.Color(65, 75, 95)
         self.interaction_hint: str | None = None
+        self.render_offset: Tuple[int, int] = (0, 0)
         self.bus.subscribe("quest.completed", self._on_quest_completed)
         self.bus.subscribe("quest.turned_in", self._on_quest_turned_in)
         self.bus.subscribe("quest.unlocked", self._on_quest_unlocked)
@@ -228,6 +229,19 @@ class PygameMMO:
         bounds = zone.bounds
         return pygame.Rect((bounds.x, bounds.y), (bounds.width, bounds.height))
 
+    def _zone_render_offset(self, zone: Zone | None) -> tuple[int, int]:
+        bounds = self._zone_rect(zone)
+        if not bounds:
+            return (0, 0)
+
+        margin = 18
+        offset_x = (self.screen_size[0] - bounds.width) // 2 - bounds.x
+        offset_y = (self.screen_size[1] - bounds.height) // 2 - bounds.y
+
+        offset_x = max(margin - bounds.x, offset_x)
+        offset_y = max(margin - bounds.y, offset_y)
+        return (offset_x, offset_y)
+
     def _zone_obstacles(self, zone: Zone | None) -> list[pygame.Rect]:
         if not zone:
             return []
@@ -264,6 +278,12 @@ class PygameMMO:
         if proposed.y + proposed.height > bounds.y + bounds.height:
             return "south"
         return None
+
+    def _screen_rect(self, rect: pygame.Rect) -> pygame.Rect:
+        return rect.move(self.render_offset)
+
+    def _screen_point(self, point: tuple[float, float] | tuple[int, int]) -> tuple[int, int]:
+        return (int(point[0] + self.render_offset[0]), int(point[1] + self.render_offset[1]))
 
     def _entry_position_for_zone(self, player: Actor, zone: Zone, direction: str | None) -> pygame.Rect:
         bounds = self._zone_rect(zone)
@@ -512,10 +532,11 @@ class PygameMMO:
         return False
 
     def _handle_attack_click(self, pos: Tuple[int, int]) -> bool:
+        world_pos = (pos[0] - self.render_offset[0], pos[1] - self.render_offset[1])
         for name, actor in self.actors.items():
             if name == PLAYER_NAME:
                 continue
-            if actor.rect.collidepoint(pos):
+            if actor.rect.collidepoint(world_pos):
                 self.target_name = name
                 return self._attempt_attack(name)
         return False
@@ -1071,8 +1092,8 @@ class PygameMMO:
         magnitude = max(1.0, (dx ** 2 + dy ** 2) ** 0.5)
         norm_x, norm_y = dx / magnitude, dy / magnitude
 
-        start = (int(px + norm_x * 40), int(py + norm_y * 40))
-        end = (int(px + norm_x * 80), int(py + norm_y * 80))
+        start = self._screen_point((px + norm_x * 40, py + norm_y * 40))
+        end = self._screen_point((px + norm_x * 80, py + norm_y * 80))
         color = (240, 200, 120)
         pygame.draw.line(screen, color, start, end, 4)
 
@@ -1183,52 +1204,92 @@ class PygameMMO:
 
     def _render_quest_panel(self, screen: pygame.Surface, bar_height: int) -> None:
         assert self.font is not None
-        margin = 12
-        panel_width = 280
+        margin = 10
+        panel_width = 320
         available_height = self.screen_size[1] - bar_height - margin * 2
 
         if not self.show_quests_panel:
-            tab_height = 120
+            tab_height = 160
             tab_y = (self.screen_size[1] - bar_height - tab_height) // 2
-            self.quest_panel_tab = pygame.Rect(self.screen_size[0] - margin - 18, tab_y, 18, tab_height)
-            pygame.draw.rect(screen, (34, 38, 48), self.quest_panel_tab, border_radius=9)
-            pygame.draw.rect(screen, (110, 126, 146), self.quest_panel_tab, 1, border_radius=9)
-            title = self.font.render("Quests", True, (180, 190, 200))
+            self.quest_panel_tab = pygame.Rect(self.screen_size[0] - 12, tab_y, 12, tab_height)
+            pygame.draw.rect(screen, (38, 44, 56), self.quest_panel_tab, border_radius=6)
+            pygame.draw.rect(screen, (120, 140, 170), self.quest_panel_tab, 1, border_radius=6)
+            title = self.font.render("Quests", True, (190, 200, 210))
             rotated = pygame.transform.rotate(title, 90)
-            screen.blit(rotated, (self.quest_panel_tab.x - 6, self.quest_panel_tab.y + tab_height // 2 - rotated.get_height() // 2))
+            screen.blit(rotated, (self.quest_panel_tab.x - rotated.get_width() // 2, tab_y + tab_height // 2 - rotated.get_height() // 2))
             return
         self.quest_panel_tab = None
 
         panel_rect = pygame.Rect(
-            self.screen_size[0] - panel_width - margin,
+            self.screen_size[0] - panel_width,
             margin,
-            panel_width,
+            panel_width - margin,
             available_height,
         )
-        pygame.draw.rect(screen, (26, 30, 38), panel_rect, border_radius=10)
-        pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=10)
-        header = self.font.render("Quest Log", True, (215, 225, 235))
-        screen.blit(header, (panel_rect.x + 12, panel_rect.y + 10))
+        surface = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
+        surface.fill((20, 24, 32, 215))
+        pygame.draw.rect(surface, (110, 130, 155), surface.get_rect(), 2, border_radius=12)
+        header = self.font.render("Quest Log", True, (225, 235, 245))
+        surface.blit(header, (14, 10))
 
-        entries = self.quest_log[-14:]
-        if not entries:
-            empty = self.font.render("No updates yet.", True, (170, 180, 190))
-            screen.blit(empty, (panel_rect.x + 12, panel_rect.y + 38))
-            return
+        quests = self._quests()
+        y_cursor = 38
+        line_spacing = 6
+        max_text_width = panel_rect.width - 28
 
-        y_cursor = panel_rect.y + 36
-        line_spacing = 4
-        max_text_width = panel_width - 24
-        lines: list[str] = []
-        for entry in reversed(entries):
-            lines.extend(self._wrap_text(entry, max_width=max_text_width, bullet_prefix="• "))
+        def render_section(title: str, lines: list[str], *, accent: pygame.Color = pygame.Color(170, 200, 230)) -> None:
+            nonlocal y_cursor
+            if not lines:
+                return
+            heading = self.font.render(title, True, accent)
+            surface.blit(heading, (14, y_cursor))
+            y_cursor += heading.get_height() + 4
+            for line in lines:
+                wrapped = self._wrap_text(line, max_width=max_text_width, bullet_prefix="• ")
+                for wrapped_line in wrapped:
+                    text = self.font.render(wrapped_line, True, (210, 215, 220))
+                    if y_cursor + text.get_height() > panel_rect.height - 6:
+                        return
+                    surface.blit(text, (18, y_cursor))
+                    y_cursor += text.get_height() + line_spacing
+            y_cursor += 4
 
-        for line in lines:
-            text = self.font.render(line, True, (205, 210, 215))
-            if y_cursor + text.get_height() > panel_rect.y + panel_rect.height - 8:
-                break
-            screen.blit(text, (panel_rect.x + 12, y_cursor))
-            y_cursor += text.get_height() + line_spacing
+        current = self._active_quest()
+        stage = self._active_stage(current)
+        if current:
+            tasks: list[str] = []
+            targets = self._quest_targets(current)
+            if current.stage_progress and current.current_stage < len(current.stage_progress):
+                progress = current.stage_progress[current.current_stage]
+            else:
+                progress = current.progress
+            for name, goal in targets.items():
+                count = progress.get(name, 0) if isinstance(progress, dict) else 0
+                tasks.append(f"{name.replace('_', ' ').title()}: {count}/{goal}")
+            description = stage.description if stage else current.description
+            render_section(
+                f"Current: {current.description}",
+                ([description] if description else []) + tasks,
+            )
+
+        active_quests = [q for q in quests if q.status in {"accepted", "available"} and q is not current]
+        render_section(
+            "Tracked Quests",
+            [f"{q.description} ({q.status.replace('_', ' ')})" for q in active_quests],
+        )
+
+        completed = [q for q in quests if q.status == "completed"]
+        render_section("Completed", [q.description for q in completed], accent=pygame.Color(170, 210, 180))
+
+        available = [q for q in quests if q.status == "available" and q is not current]
+        if current and available:
+            render_section("Other Offers", [q.description for q in available])
+
+        if not quests:
+            empty = self.font.render("No quests yet.", True, (180, 190, 200))
+            surface.blit(empty, (14, y_cursor))
+
+        screen.blit(surface, panel_rect)
 
     def _render_skills_panel(self, screen: pygame.Surface, bar_height: int) -> None:
         if not self.show_skills_panel or not self.font:
@@ -1274,11 +1335,13 @@ class PygameMMO:
         assert self.font is not None
         margin = 10
         bar_rect = pygame.Rect(margin, self.screen_size[1] - bar_height - margin, self.screen_size[0] - margin * 2, bar_height)
-        pygame.draw.rect(screen, (18, 22, 28), bar_rect, border_radius=12)
-        pygame.draw.rect(screen, (70, 86, 104), bar_rect, 1, border_radius=12)
+        overlay = pygame.Surface((bar_rect.width, bar_rect.height), pygame.SRCALPHA)
+        overlay.fill((12, 16, 22, 160))
+        pygame.draw.rect(overlay, (90, 110, 130), overlay.get_rect(), 1, border_radius=12)
+        screen.blit(overlay, bar_rect)
 
-        button_size = 54
-        spacing = 10
+        button_size = 48
+        spacing = 8
         buttons = [
             ("menu", "≡", self.show_menu_panel or self.show_help_overlay),
             ("inventory", "I", self.show_inventory),
@@ -1325,22 +1388,22 @@ class PygameMMO:
         self.interaction_hint = None
 
         zone = self.context.zones.active_zone
+        self.render_offset = self._zone_render_offset(zone)
         if zone:
             self._render_zone(screen, zone)
             self._render_minimap(screen, zone)
 
         for name, actor in self.actors.items():
-            pygame.draw.rect(screen, actor.color, actor.rect, border_radius=6)
+            pygame.draw.rect(screen, actor.color, self._screen_rect(actor.rect), border_radius=6)
             # Keep the playfield free of floating text; lean on HUD panels instead.
 
         self._render_objective_indicator(screen)
         self._render_loot_banner(screen)
 
         margin = 12
-        bar_height = 68
+        bar_height = max(58, int(self.screen_size[1] * 0.08))
         quest = self._active_quest()
         status = quest.status if quest else "none"
-
         self._render_zone_badge(screen, margin)
 
         if self._player_near(QUEST_GIVER_NAME):
@@ -1360,12 +1423,77 @@ class PygameMMO:
         bounds = self._zone_rect(zone)
         if not bounds:
             return
-        pygame.draw.rect(screen, (28, 34, 46), bounds, border_radius=12)
-        pygame.draw.rect(screen, self.zone_boundary_color, bounds, width=5, border_radius=12)
+        screen_bounds = self._screen_rect(bounds)
+        pygame.draw.rect(screen, (28, 34, 46), screen_bounds, border_radius=12)
+        pygame.draw.rect(screen, self.zone_boundary_color, screen_bounds, width=5, border_radius=12)
 
         for obstacle in self._zone_obstacles(zone):
-            pygame.draw.rect(screen, self.obstacle_color, obstacle, border_radius=6)
-            pygame.draw.rect(screen, (120, 140, 170), obstacle, width=2, border_radius=6)
+            screen_obstacle = self._screen_rect(obstacle)
+            pygame.draw.rect(screen, self.obstacle_color, screen_obstacle, border_radius=6)
+            pygame.draw.rect(screen, (120, 140, 170), screen_obstacle, width=2, border_radius=6)
+
+    def _render_minimap(self, screen: pygame.Surface, zone: Zone) -> None:
+        if not self.font:
+            return
+
+        bounds = self._zone_rect(zone)
+        if not bounds:
+            return
+
+        margin = 12
+        max_dimension = min(max(self.screen_size) * 0.25, 240)
+        map_size = int(max(170, max_dimension))
+        map_rect = pygame.Rect(
+            self.screen_size[0] - map_size - margin,
+            margin,
+            map_size,
+            map_size,
+        )
+
+        pygame.draw.rect(screen, (16, 20, 28), map_rect, border_radius=12)
+        pygame.draw.rect(screen, (90, 120, 150), map_rect, 2, border_radius=12)
+
+        padding = 10
+        available_w = map_rect.width - padding * 2
+        available_h = map_rect.height - padding * 2
+        scale = min(available_w / bounds.width, available_h / bounds.height)
+        content_w = bounds.width * scale
+        content_h = bounds.height * scale
+        origin_x = map_rect.x + padding + (available_w - content_w) / 2
+        origin_y = map_rect.y + padding + (available_h - content_h) / 2
+
+        def project_rect(rect: pygame.Rect) -> pygame.Rect:
+            return pygame.Rect(
+                int(origin_x + (rect.x - bounds.x) * scale),
+                int(origin_y + (rect.y - bounds.y) * scale),
+                max(2, int(rect.width * scale)),
+                max(2, int(rect.height * scale)),
+            )
+
+        pygame.draw.rect(
+            screen,
+            (40, 60, 82),
+            pygame.Rect(int(origin_x), int(origin_y), int(content_w), int(content_h)),
+            2,
+            border_radius=8,
+        )
+
+        for obstacle in self._zone_obstacles(zone):
+            projected = project_rect(obstacle)
+            pygame.draw.rect(screen, (65, 85, 115), projected, border_radius=4)
+            pygame.draw.rect(screen, (110, 140, 175), projected, 1, border_radius=4)
+
+        for actor in self.actors.values():
+            rect = project_rect(actor.rect)
+            center = (rect.centerx, rect.centery)
+            color = pygame.Color(200, 70, 70) if actor.name == self.target_name else actor.color
+            if actor.name == PLAYER_NAME:
+                color = pygame.Color(240, 220, 140)
+            pygame.draw.circle(screen, color, center, max(3, int(6 * scale)), width=0)
+            pygame.draw.circle(screen, (12, 14, 18), center, max(3, int(6 * scale)), 1)
+
+        label = self.font.render(zone.name.title(), True, (210, 220, 235))
+        screen.blit(label, (map_rect.x + 12, map_rect.y + 8))
 
     def _render_minimap(self, screen: pygame.Surface, zone: Zone) -> None:
         if not self.font:
