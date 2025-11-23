@@ -49,4 +49,5 @@ class ZoneDefinition(BaseDefinition):
     bounds: BoundsDefinition
     danger_level: str
     spawn_rules: list[SpawnRuleDefinition] = Field(default_factory=list)
+    obstacles: list[BoundsDefinition] = Field(default_factory=list)
     is_static: bool = Field(default=True)

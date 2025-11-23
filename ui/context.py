@@ -56,7 +56,9 @@ def build_context(data_path: Path) -> GameContext:
             condition=lambda event: event.payload.get("defender") == "Shade",
         )
     zones = ZoneManager([bundle.zones.create(name) for name in bundle.zones.entries()])
-    if "camp" in bundle.zones.entries():
+    if "town" in bundle.zones.entries():
+        zones.set_active("town")
+    elif "camp" in bundle.zones.entries():
         zones.set_active("camp")
     log_with_fields(logger, logging.INFO, "Context ready", characters=list(combat.characters))
     return GameContext(bundle=bundle, bus=bus, combat=combat, quests=quests, economy=economy, zones=zones)

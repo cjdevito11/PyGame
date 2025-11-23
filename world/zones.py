@@ -21,6 +21,15 @@ class ZoneBounds:
     def to_dict(self) -> Dict[str, int]:
         return {"x": self.x, "y": self.y, "width": self.width, "height": self.height}
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, int]) -> "ZoneBounds":
+        return cls(
+            x=int(data["x"]),
+            y=int(data["y"]),
+            width=int(data["width"]),
+            height=int(data["height"]),
+        )
+
 
 @dataclass
 class SpawnRule:
@@ -44,24 +53,22 @@ class Zone:
     bounds: ZoneBounds
     danger_level: str
     spawn_rules: List[SpawnRule]
+    obstacles: List[ZoneBounds]
     is_static: bool = True
 
     @classmethod
     def from_definition(cls, name: str, data: Dict) -> "Zone":
-        bounds_data = data["bounds"]
-        bounds = ZoneBounds(
-            x=int(bounds_data["x"]),
-            y=int(bounds_data["y"]),
-            width=int(bounds_data["width"]),
-            height=int(bounds_data["height"]),
-        )
+        bounds = ZoneBounds.from_dict(data["bounds"])
         spawn_rules = [SpawnRule.from_definition(entry) for entry in data.get("spawn_rules", [])]
+        obstacle_defs = data.get("obstacles", [])
+        obstacles = [ZoneBounds.from_dict(entry) for entry in obstacle_defs]
         return cls(
             name=name,
             description=data["description"],
             bounds=bounds,
             danger_level=data["danger_level"],
             spawn_rules=spawn_rules,
+            obstacles=obstacles,
             is_static=bool(data.get("is_static", True)),
         )
 
@@ -107,12 +114,27 @@ def create_outdoor_zone(*, seed: int | None = None, danger_level: str | None = N
     spawn_rules = [SpawnRule.from_definition(rule) for rule in chosen_rules]
 
     generated_danger = danger_level or rng.choice(["low", "medium", "high"])
+
+    obstacles: List[ZoneBounds] = []
+    for _ in range(rng.randint(1, 3)):
+        ox = bounds.x + rng.randint(40, max(60, bounds.width // 3))
+        oy = bounds.y + rng.randint(40, max(60, bounds.height // 3))
+        obstacles.append(
+            ZoneBounds(
+                x=ox,
+                y=oy,
+                width=rng.randint(80, 180),
+                height=rng.randint(60, 160),
+            )
+        )
+
     return Zone(
         name=f"{selected_theme}-expanse-{rng.randint(1000, 9999)}",
         description=f"A procedurally generated {selected_theme} outside the settled roads.",
         bounds=bounds,
         danger_level=generated_danger,
         spawn_rules=spawn_rules,
+        obstacles=obstacles,
         is_static=False,
     )
 

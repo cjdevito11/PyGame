@@ -112,7 +112,7 @@ class GameSetupTest(unittest.TestCase):
         game._maybe_spawn_target()
         self.assertIn(DEFAULT_ENEMY_NAME, game.actors)
         self.assertIsNotNone(context.zones.active_zone)
-        self.assertEqual(context.zones.active_zone.name, "camp")
+        self.assertEqual(context.zones.active_zone.name, "town")
 
         player_rect = game.actors[PLAYER_NAME].rect
         self.assertGreater(player_rect.width, 0)
@@ -133,6 +133,24 @@ class GameSetupTest(unittest.TestCase):
 
         self.assertLess(context.combat.characters[DEFAULT_ENEMY_NAME].hit_points, starting_hp)
         self.assertGreater(player._cooldown_timer, 0)
+
+    def test_zone_change_swaps_between_static_and_outdoor(self) -> None:
+        context = build_context(DATA_DIR)
+        game = PygameMMO(context)
+
+        events: list[dict] = []
+        game.bus.subscribe("zone.changed", lambda event: events.append(event.payload))
+
+        game._transition_zone("east")
+        self.assertTrue(context.zones.active_zone)
+        self.assertFalse(context.zones.active_zone.is_static)
+        self.assertIn("current", events[-1])
+        self.assertNotIn(QUEST_GIVER_NAME, game.actors)
+
+        game._transition_zone("west")
+        self.assertTrue(context.zones.active_zone.is_static)
+        self.assertIn(QUEST_GIVER_NAME, game.actors)
+        self.assertEqual(events[-1]["current"], context.zones.active_zone.name)
 
 
 if __name__ == "__main__":

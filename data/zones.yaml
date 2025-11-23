@@ -13,6 +13,15 @@
     - spawn: "campfire"
       weight: 1
       max_count: 1
+  obstacles:
+    - x: 120
+      y: 220
+      width: 160
+      height: 110
+    - x: 520
+      y: 180
+      width: 110
+      height: 140
   is_static: true
 - name: town
   description: "A bustling frontier town protected by wooden palisades."
@@ -32,4 +41,13 @@
     - spawn: "trader"
       weight: 1
       max_count: 3
+  obstacles:
+    - x: 320
+      y: 280
+      width: 140
+      height: 140
+    - x: 760
+      y: 220
+      width: 120
+      height: 180
   is_static: true
