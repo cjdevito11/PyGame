@@ -3,12 +3,110 @@
     "name": "lantern",
     "description": "Keeps the tunnels lit and spirits calm.",
     "slot": "offhand",
-    "power": 1
+    "power": 1,
+    "defense": 0,
+    "speed": 0,
+    "max_durability": 12,
+    "value": 2,
+    "appearance_states": ["bright", "flickering", "dim"]
   },
   {
     "name": "bronze_sword",
     "description": "A reliable blade for starting adventurers.",
     "slot": "mainhand",
-    "power": 3
+    "power": 3,
+    "defense": 0,
+    "speed": 1,
+    "max_durability": 18,
+    "value": 4,
+    "appearance_states": ["polished", "scratched", "nicked"]
+  },
+  {
+    "name": "leather_armor",
+    "description": "Light protection that still allows movement.",
+    "slot": "armor",
+    "power": 0,
+    "defense": 2,
+    "speed": 0,
+    "max_durability": 20,
+    "value": 5,
+    "appearance_states": ["clean", "worn", "torn"]
+  },
+  {
+    "name": "oak_shield",
+    "description": "Sturdy shield carved from fallen forest trees.",
+    "slot": "offhand",
+    "power": 0,
+    "defense": 3,
+    "speed": -1,
+    "max_durability": 24,
+    "value": 6,
+    "appearance_states": ["smooth", "dented", "splintered"]
+  },
+  {
+    "name": "speed_potion",
+    "description": "A bubbling draught that sharpens reflexes for a few swings.",
+    "slot": "consumable",
+    "power": 0,
+    "defense": 0,
+    "speed": 2,
+    "item_type": "consumable",
+    "duration_turns": 3,
+    "value": 3
+  },
+  {
+    "name": "hardened_mail",
+    "description": "Heavy armor coveted by collectors.",
+    "slot": "armor",
+    "power": 0,
+    "defense": 5,
+    "speed": -1,
+    "max_durability": 35,
+    "set_name": "obsidian",
+    "value": 15,
+    "appearance_states": ["gleaming", "dull", "cracked"]
+  },
+  {
+    "name": "obsidian_blade",
+    "description": "A razor-sharp blade rumored to be unbreakable.",
+    "slot": "mainhand",
+    "power": 6,
+    "defense": 0,
+    "speed": 2,
+    "max_durability": 40,
+    "set_name": "obsidian",
+    "value": 18,
+    "appearance_states": ["shining", "chipped", "shattered"]
+  },
+  {
+    "name": "obsidian_crown",
+    "description": "Royal headpiece that hums with power.",
+    "slot": "helm",
+    "power": 1,
+    "defense": 2,
+    "speed": 1,
+    "max_durability": 20,
+    "set_name": "obsidian",
+    "value": 10,
+    "appearance_states": ["pristine", "tarnished", "crumbling"]
+  },
+  {
+    "name": "scout_pack",
+    "description": "Lightweight pack that expands carrying slots.",
+    "slot": "back",
+    "power": 0,
+    "defense": 0,
+    "speed": 0,
+    "capacity_bonus": 4,
+    "value": 8
+  },
+  {
+    "name": "quest_relic",
+    "description": "An artifact needed for a guided quest turn-in.",
+    "slot": "bag",
+    "power": 0,
+    "defense": 0,
+    "speed": 0,
+    "quest_item": true
   }
 ]

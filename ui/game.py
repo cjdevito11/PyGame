@@ -113,9 +113,13 @@ class PygameMMO:
         self.zone_prompt: str = ""
         self.actors: Dict[str, Actor] = self._spawn_start_area()
         self.tutorial = TutorialManager()
+        self.show_inventory = False
+        self.loot_banner: str | None = None
+        self.loot_banner_timer: float = 0.0
         self.bus.subscribe("quest.completed", self._on_quest_completed)
         self.bus.subscribe("quest.turned_in", self._on_quest_turned_in)
         self.bus.subscribe("zone.changed", self._on_zone_changed)
+        self.bus.subscribe("inventory.item_added", self._on_item_added)
 
     def _spawn_start_area(self) -> Dict[str, Actor]:
         definitions = self.context.bundle.characters.definitions()
@@ -448,6 +452,126 @@ class PygameMMO:
             candidate = f"{base}-{counter}"
         return candidate
 
+    def _player_combatant(self):
+        return self.context.combat.characters.get(PLAYER_NAME)
+
+    def _render_loot_banner(self, screen: pygame.Surface) -> None:
+        if not self.loot_banner or self.loot_banner_timer <= 0.0:
+            return
+        assert self.font is not None
+        banner_text = self.font.render(self.loot_banner, True, (255, 223, 128))
+        padding = 10
+        rect = banner_text.get_rect()
+        rect.centerx = SCREEN_SIZE[0] // 2
+        rect.y = 10
+        box = pygame.Rect(
+            rect.x - padding,
+            rect.y - padding,
+            rect.width + padding * 2,
+            rect.height + padding * 2,
+        )
+        pygame.draw.rect(screen, (70, 50, 20), box, border_radius=8)
+        pygame.draw.rect(screen, (255, 223, 128), box, 2, border_radius=8)
+        screen.blit(banner_text, (rect.x, rect.y))
+
+    def _render_inventory_panel(self, screen: pygame.Surface) -> None:
+        if not self.show_inventory:
+            return
+
+        assert self.font is not None
+        combatant = self._player_combatant()
+        if not combatant:
+            return
+
+        panel_width = 340
+        margin = 14
+        panel_rect = pygame.Rect(SCREEN_SIZE[0] - panel_width - margin, margin, panel_width, 240)
+        pygame.draw.rect(screen, (30, 36, 48), panel_rect, border_radius=8)
+        pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=8)
+
+        title = self.font.render("Inventory (press I)", True, (220, 230, 235))
+        screen.blit(title, (panel_rect.x + 12, panel_rect.y + 10))
+
+        gold_amount = self.context.economy.wallets.get(PLAYER_NAME, combatant.gold)
+        gold_text = self.font.render(f"Gold: {gold_amount}", True, (240, 210, 140))
+        screen.blit(gold_text, (panel_rect.x + 12, panel_rect.y + 36))
+
+        capacity_note = self.font.render(
+            f"Slots: {len(combatant.inventory)}/{combatant.capacity()}", True, (180, 190, 210)
+        )
+        screen.blit(capacity_note, (panel_rect.x + 12, panel_rect.y + 58))
+
+        equipped_y = panel_rect.y + 82
+        screen.blit(self.font.render("Equipped:", True, (210, 215, 220)), (panel_rect.x + 12, equipped_y))
+        equipped_y += 22
+        slots = ["mainhand", "offhand", "armor", "helm", "back"]
+        for slot in slots:
+            item = combatant.equipped.get(slot)
+            label = item.name.replace("_", " ").title() if item else "—"
+            stats = []
+            if item:
+                if item.power:
+                    stats.append(f"P{item.power}")
+                if item.defense:
+                    stats.append(f"D{item.defense}")
+                if item.speed:
+                    stats.append(f"S{item.speed}")
+                if item.max_durability:
+                    stats.append(f"Dur {item.durability}/{item.max_durability}")
+            suffix = f" ({', '.join(stats)})" if stats else ""
+            slot_text = self.font.render(f"{slot.title()}: {label}{suffix}", True, (200, 200, 210))
+            screen.blit(slot_text, (panel_rect.x + 24, equipped_y))
+            equipped_y += 20
+
+        items_y = equipped_y + 12
+        screen.blit(self.font.render("Pack:", True, (210, 215, 220)), (panel_rect.x + 12, items_y))
+        items_y += 22
+        if combatant.inventory:
+            for item in combatant.inventory:
+                stats = []
+                if item.power:
+                    stats.append(f"P{item.power}")
+                if item.defense:
+                    stats.append(f"D{item.defense}")
+                if item.speed:
+                    stats.append(f"S{item.speed}")
+                if item.max_durability:
+                    condition = f" {item.durability}/{item.max_durability}"
+                    if item.appearance_states:
+                        condition += f" {item.appearance_states[min(2, int((1 - (item.durability or 0) / item.max_durability) * 3))]}"
+                    stats.append(f"Dur{condition}")
+                stats_suffix = f" ({', '.join(stats)})" if stats else ""
+                line = self.font.render(
+                    f"• {item.name.replace('_', ' ').title()} [{item.slot}]{stats_suffix}",
+                    True,
+                    (190, 195, 205),
+                )
+                screen.blit(line, (panel_rect.x + 18, items_y))
+                items_y += 18
+        else:
+            empty = self.font.render("No items carried.", True, (150, 150, 160))
+            screen.blit(empty, (panel_rect.x + 18, items_y))
+
+        buffs_y = items_y + 10
+        if combatant.buffs:
+            screen.blit(self.font.render("Active buffs:", True, (210, 215, 220)), (panel_rect.x + 12, buffs_y))
+            buffs_y += 22
+            for buff in combatant.buffs:
+                desc = []
+                if buff.power:
+                    desc.append(f"P{buff.power}")
+                if buff.defense:
+                    desc.append(f"D{buff.defense}")
+                if buff.speed:
+                    desc.append(f"S{buff.speed}")
+                buff_line = self.font.render(
+                    f"• {buff.source.replace('_', ' ')} ({', '.join(desc)}) {buff.turns_remaining} turns",
+                    True,
+                    (190, 195, 205),
+                )
+                screen.blit(buff_line, (panel_rect.x + 18, buffs_y))
+                buffs_y += 18
+
     def _transition_zone(self, direction: str) -> None:
         current = self.context.zones.active_zone
         if not current:
@@ -488,6 +612,8 @@ class PygameMMO:
             hp_text = self.font.render(label, True, (236, 240, 241))
             screen.blit(hp_text, (actor.rect.x - 8, actor.rect.y - 28))
 
+        self._render_loot_banner(screen)
+
         margin = 16
         line_height = 22
         section_spacing = 10
@@ -512,6 +638,7 @@ class PygameMMO:
             prompts.extend(tutorial_prompts)
         else:
             prompts.append("Press H to re-open control hints.")
+        prompts.append("Press I to toggle your inventory.")
 
         if status == "available":
             prompts.append("Press E near the Guide to accept the quest.")
@@ -543,6 +670,8 @@ class PygameMMO:
             log_line = self.font.render(f"• {entry}", True, (210, 210, 210))
             screen.blit(log_line, (margin, log_title_y + 24 + idx * 20))
 
+        self._render_inventory_panel(screen)
+
         pygame.display.flip()
 
     def _handle_defeat(self) -> None:
@@ -565,6 +694,15 @@ class PygameMMO:
         else:
             self.quest_log.append("The Guide thanks you for your help.")
 
+    def _on_item_added(self, event) -> None:
+        owner = event.payload.get("owner")
+        if owner != PLAYER_NAME:
+            return
+        item = event.payload.get("item", "unknown item")
+        self.loot_banner = f"New loot: {item.replace('_', ' ').title()}"
+        self.loot_banner_timer = 3.5
+        self.show_inventory = True
+
     def _on_zone_changed(self, event) -> None:
         current = event.payload.get("current", "unknown")
         danger = event.payload.get("danger", "unknown")
@@ -582,6 +720,7 @@ class PygameMMO:
         while self.running:
             dt = clock.tick(60) / 1000.0
             self.tutorial.update(dt)
+            self.loot_banner_timer = max(0.0, self.loot_banner_timer - dt)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
@@ -593,6 +732,8 @@ class PygameMMO:
                             self.tutorial.record_interaction()
                     if event.key == pygame.K_h:
                         self.tutorial.request_help()
+                    if event.key == pygame.K_i:
+                        self.show_inventory = not self.show_inventory
 
             for actor in self.actors.values():
                 actor.update_cooldown(dt)

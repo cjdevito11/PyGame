@@ -35,14 +35,16 @@ def build_context(data_path: Path) -> GameContext:
 
     for name in bundle.characters.entries():
         profile = bundle.characters.create(name)
-        combat.register_character(profile.name, profile.class_name, profile.items, gold=profile.gold)
+        combat.register_character(
+            profile.name, profile.class_name, profile.items, gold=profile.gold, bag_capacity=profile.bag_capacity
+        )
 
     economy = EconomySystem(bus, item_registry=bundle.items, combat_system=combat)
     for character in combat.characters.values():
         economy.sync_wallet(character.name, character.gold)
     economy.register_store(
         "camp",
-        {name: definition["power"] + 1 for name, definition in bundle.items.definitions().items()},
+        {name: max(1, definition.get("value", definition.get("power", 1)) or 1) for name, definition in bundle.items.definitions().items()},
     )
 
     quests = QuestSystem(bus)
@@ -53,7 +55,10 @@ def build_context(data_path: Path) -> GameContext:
             trigger_event="combat.defeated",
             owner="Aria",
             reward_gold=4,
+            reward_item="leather_armor",
             condition=lambda event: event.payload.get("defender") == "Shade",
+            target_monsters={"Shade": 1},
+            loot_queue=["quest_relic"],
         )
     zones = ZoneManager([bundle.zones.create(name) for name in bundle.zones.entries()])
     if "town" in bundle.zones.entries():

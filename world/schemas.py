@@ -22,7 +22,17 @@ class ClassDefinition(BaseDefinition):
 
 class ItemDefinition(BaseDefinition):
     slot: str
-    power: int = Field(..., ge=0)
+    power: int = Field(default=0)
+    defense: int = Field(default=0)
+    speed: int = Field(default=0)
+    item_type: str = Field(default="equipment", description="equipment or consumable")
+    duration_turns: int = Field(default=0, ge=0)
+    capacity_bonus: int = Field(default=0, ge=0)
+    max_durability: int = Field(default=0, ge=0)
+    set_name: str | None = Field(default=None)
+    value: int = Field(default=0, ge=0)
+    appearance_states: list[str] = Field(default_factory=list)
+    quest_item: bool = Field(default=False)
 
 
 class CharacterDefinition(BaseDefinition):
@@ -30,6 +40,7 @@ class CharacterDefinition(BaseDefinition):
     appearance: str = Field(..., description="Appearance to display")
     items: list[str] = Field(default=[])
     gold: int = Field(default=0, ge=0)
+    bag_capacity: int = Field(default=10, ge=1)
 
 
 class BoundsDefinition(BaseModel):
