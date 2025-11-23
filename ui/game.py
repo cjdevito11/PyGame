@@ -967,31 +967,91 @@ class PygameMMO:
         combatant = self._player_combatant()
         if not combatant or not self.font:
             return
-        x = self.screen_size[0] - 340
-        y = self.screen_size[1] - 140
-        pygame.draw.rect(screen, (22, 26, 32), pygame.Rect(x - 10, y - 16, 330, 120), border_radius=8)
-        pygame.draw.rect(screen, (90, 110, 130), pygame.Rect(x - 10, y - 16, 330, 120), 1, border_radius=8)
-        resources = ", ".join(f"{k}: {v}" for k, v in combatant.resource_pools.items()) or "No resource"
-        res_text = self.font.render(f"Resources: {resources}", True, (210, 220, 235))
-        screen.blit(res_text, (x, y))
-        gcd_text = self.font.render(f"GCD: {combatant.gcd_remaining} turn(s)", True, (180, 190, 205))
-        screen.blit(gcd_text, (x, y + 18))
-        stat_line = self.font.render(
-            f"STR {combatant.strength} | AGI {combatant.agility} | MAS {combatant.mastery}",
-            True,
-            (180, 195, 210),
+
+        try:
+            char_class = self.context.bundle.classes.create(combatant.class_name)
+            max_health = max(1, int(char_class.hit_points))
+            resource_type = char_class.resource_type or "mana"
+            max_resource = max(1, int(char_class.resource_max or char_class.mana or 1))
+        except Exception:
+            max_health = max(1, combatant.hit_points)
+            resource_type = next(iter(combatant.resource_pools), "mana")
+            max_resource = max(1, combatant.resource_pools.get(resource_type, 1))
+
+        resource_value = combatant.resource_pools.get(resource_type, 0)
+        health_ratio = min(1.0, combatant.hit_points / max_health)
+        resource_ratio = min(1.0, resource_value / max_resource)
+
+        bar_height = 68
+        margin = 14
+        radius = max(46, min(74, int(min(self.screen_size) * 0.09)))
+        center_y = max(radius + margin, self.screen_size[1] - bar_height - margin - radius)
+        left_center = (margin + radius, center_y)
+        right_center = (self.screen_size[0] - margin - radius, center_y)
+
+        self._draw_globe(
+            screen,
+            left_center,
+            radius,
+            health_ratio,
+            pygame.Color(170, 60, 60),
+            "Health",
+            f"{combatant.hit_points}/{max_health}",
         )
-        screen.blit(stat_line, (x, y + 36))
-        ability_defs = []
-        for name, definition in self.context.bundle.abilities.definitions().items():
-            if definition.get("class_name") == combatant.class_name:
-                ability_defs.append(name)
-        ability_label = self.font.render("Hotbar:", True, (210, 220, 235))
-        screen.blit(ability_label, (x, y + 56))
-        for idx, ability in enumerate(ability_defs[:5]):
-            cd = combatant.cooldowns.get(ability, 0)
-            entry = self.font.render(f"{idx+1}. {ability.replace('_', ' ')} (CD {cd})", True, (195, 200, 210))
-            screen.blit(entry, (x + 12, y + 76 + idx * 18))
+        self._draw_globe(
+            screen,
+            right_center,
+            radius,
+            resource_ratio,
+            pygame.Color(70, 110, 190),
+            resource_type.replace("_", " ").title(),
+            f"{resource_value}/{max_resource}",
+        )
+
+    def _draw_globe(
+        self,
+        screen: pygame.Surface,
+        center: Tuple[int, int],
+        radius: int,
+        fill_ratio: float,
+        base_color: pygame.Color,
+        label: str,
+        value_text: str,
+    ) -> None:
+        if not self.font:
+            return
+
+        ratio = max(0.0, min(1.0, fill_ratio))
+        diameter = radius * 2
+        globe_surface = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
+
+        fill_height = int(diameter * ratio)
+        if fill_height > 0:
+            fill_surface = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
+            fill_surface.set_clip(pygame.Rect(0, diameter - fill_height, diameter, fill_height))
+            pygame.draw.circle(fill_surface, base_color, (radius, radius), radius)
+            fill_surface.set_clip(None)
+            globe_surface.blit(fill_surface, (0, 0))
+
+        pygame.draw.circle(globe_surface, (22, 28, 36, 220), (radius, radius), radius)
+        pygame.draw.circle(globe_surface, (110, 140, 170), (radius, radius), radius, 3)
+        pygame.draw.circle(globe_surface, (255, 255, 255, 60), (radius, radius - radius // 3), radius // 2)
+
+        shadow = pygame.Surface((diameter + 10, diameter + 10), pygame.SRCALPHA)
+        pygame.draw.circle(shadow, (0, 0, 0, 80), (shadow.get_width() // 2, shadow.get_height() // 2), radius + 4)
+        screen.blit(shadow, (center[0] - shadow.get_width() // 2, center[1] - shadow.get_height() // 2 + 4))
+        screen.blit(globe_surface, (center[0] - radius, center[1] - radius))
+
+        label_surface = self.font.render(label, True, (235, 240, 245))
+        label_pos = (center[0] - label_surface.get_width() // 2, center[1] - radius - label_surface.get_height() - 6)
+        screen.blit(label_surface, label_pos)
+
+        value_surface = self.font.render(value_text, True, (230, 235, 240))
+        value_pos = (
+            center[0] - value_surface.get_width() // 2,
+            center[1] - value_surface.get_height() // 2,
+        )
+        screen.blit(value_surface, value_pos)
 
     def _render_objective_indicator(self, screen: pygame.Surface) -> None:
         if not self.show_objective_indicator:
@@ -1267,6 +1327,7 @@ class PygameMMO:
         zone = self.context.zones.active_zone
         if zone:
             self._render_zone(screen, zone)
+            self._render_minimap(screen, zone)
 
         for name, actor in self.actors.items():
             pygame.draw.rect(screen, actor.color, actor.rect, border_radius=6)
@@ -1305,6 +1366,69 @@ class PygameMMO:
         for obstacle in self._zone_obstacles(zone):
             pygame.draw.rect(screen, self.obstacle_color, obstacle, border_radius=6)
             pygame.draw.rect(screen, (120, 140, 170), obstacle, width=2, border_radius=6)
+
+    def _render_minimap(self, screen: pygame.Surface, zone: Zone) -> None:
+        if not self.font:
+            return
+
+        bounds = self._zone_rect(zone)
+        if not bounds:
+            return
+
+        margin = 12
+        max_dimension = min(max(self.screen_size) * 0.25, 240)
+        map_size = int(max(170, max_dimension))
+        map_rect = pygame.Rect(
+            self.screen_size[0] - map_size - margin,
+            margin,
+            map_size,
+            map_size,
+        )
+
+        pygame.draw.rect(screen, (16, 20, 28), map_rect, border_radius=12)
+        pygame.draw.rect(screen, (90, 120, 150), map_rect, 2, border_radius=12)
+
+        padding = 10
+        available_w = map_rect.width - padding * 2
+        available_h = map_rect.height - padding * 2
+        scale = min(available_w / bounds.width, available_h / bounds.height)
+        content_w = bounds.width * scale
+        content_h = bounds.height * scale
+        origin_x = map_rect.x + padding + (available_w - content_w) / 2
+        origin_y = map_rect.y + padding + (available_h - content_h) / 2
+
+        def project_rect(rect: pygame.Rect) -> pygame.Rect:
+            return pygame.Rect(
+                int(origin_x + (rect.x - bounds.x) * scale),
+                int(origin_y + (rect.y - bounds.y) * scale),
+                max(2, int(rect.width * scale)),
+                max(2, int(rect.height * scale)),
+            )
+
+        pygame.draw.rect(
+            screen,
+            (40, 60, 82),
+            pygame.Rect(int(origin_x), int(origin_y), int(content_w), int(content_h)),
+            2,
+            border_radius=8,
+        )
+
+        for obstacle in self._zone_obstacles(zone):
+            projected = project_rect(obstacle)
+            pygame.draw.rect(screen, (65, 85, 115), projected, border_radius=4)
+            pygame.draw.rect(screen, (110, 140, 175), projected, 1, border_radius=4)
+
+        for actor in self.actors.values():
+            rect = project_rect(actor.rect)
+            center = (rect.centerx, rect.centery)
+            color = pygame.Color(200, 70, 70) if actor.name == self.target_name else actor.color
+            if actor.name == PLAYER_NAME:
+                color = pygame.Color(240, 220, 140)
+            pygame.draw.circle(screen, color, center, max(3, int(6 * scale)), width=0)
+            pygame.draw.circle(screen, (12, 14, 18), center, max(3, int(6 * scale)), 1)
+
+        label = self.font.render(zone.name.title(), True, (210, 220, 235))
+        screen.blit(label, (map_rect.x + 12, map_rect.y + 8))
 
     def _clamp_to_bounds(self, rect: pygame.Rect, bounds: pygame.Rect) -> pygame.Rect:
         clamped = pygame.Rect(
