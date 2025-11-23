@@ -1,9 +1,22 @@
-"""Zone definitions and helpers for static and procedural areas."""
+"""Zone definitions, helpers, and registry utilities."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from random import Random
-from typing import Callable, Dict, Iterable, List, Sequence
+from typing import Callable, Dict, Iterable, List, Mapping, Sequence, Tuple
+
+
+def _parse_color(value: str | Sequence[int]) -> Tuple[int, int, int]:
+    if isinstance(value, str):
+        value = value.lstrip("#")
+        if len(value) == 6:
+            r = int(value[0:2], 16)
+            g = int(value[2:4], 16)
+            b = int(value[4:6], 16)
+            return (r, g, b)
+    elif len(value) >= 3:
+        return (int(value[0]), int(value[1]), int(value[2]))
+    return (16, 18, 24)
 
 
 @dataclass
@@ -22,7 +35,7 @@ class ZoneBounds:
         return {"x": self.x, "y": self.y, "width": self.width, "height": self.height}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, int]) -> "ZoneBounds":
+    def from_dict(cls, data: Mapping[str, int]) -> "ZoneBounds":
         return cls(
             x=int(data["x"]),
             y=int(data["y"]),
@@ -40,8 +53,35 @@ class SpawnRule:
     max_count: int | None = None
 
     @classmethod
-    def from_definition(cls, data: Dict) -> "SpawnRule":
+    def from_definition(cls, data: Mapping) -> "SpawnRule":
         return cls(spawn=data["spawn"], weight=int(data["weight"]), max_count=data.get("max_count"))
+
+
+@dataclass
+class SpawnPoint:
+    """A location used to place actors when a zone is entered."""
+
+    x: int
+    y: int
+
+    def as_tuple(self) -> Tuple[int, int]:
+        return (self.x, self.y)
+
+    @classmethod
+    def from_definition(cls, data: Mapping[str, int]) -> "SpawnPoint":
+        return cls(x=int(data["x"]), y=int(data["y"]))
+
+
+@dataclass
+class EncounterTableRef:
+    """Reference to an encounter table with a selection weight."""
+
+    table: str
+    weight: int = 1
+
+    @classmethod
+    def from_definition(cls, data: Mapping) -> "EncounterTableRef":
+        return cls(table=data["table"], weight=int(data.get("weight", 1)))
 
 
 @dataclass
@@ -54,14 +94,28 @@ class Zone:
     danger_level: str
     spawn_rules: List[SpawnRule]
     obstacles: List[ZoneBounds]
+    spawn_points: Dict[str, SpawnPoint]
+    encounter_tables: Dict[str, List[EncounterTableRef]]
+    background: Tuple[int, int, int]
+    theme: str | None = None
+    seed: int | None = None
+    start_zone: bool = False
     is_static: bool = True
 
     @classmethod
-    def from_definition(cls, name: str, data: Dict) -> "Zone":
+    def from_definition(cls, name: str, data: Mapping) -> "Zone":
         bounds = ZoneBounds.from_dict(data["bounds"])
         spawn_rules = [SpawnRule.from_definition(entry) for entry in data.get("spawn_rules", [])]
         obstacle_defs = data.get("obstacles", [])
         obstacles = [ZoneBounds.from_dict(entry) for entry in obstacle_defs]
+        spawn_points = {
+            key: SpawnPoint.from_definition(value)
+            for key, value in data.get("spawn_points", {}).items()
+        }
+        encounter_tables = {
+            category: [EncounterTableRef.from_definition(entry) for entry in entries]
+            for category, entries in data.get("encounter_tables", {}).items()
+        }
         return cls(
             name=name,
             description=data["description"],
@@ -69,20 +123,34 @@ class Zone:
             danger_level=data["danger_level"],
             spawn_rules=spawn_rules,
             obstacles=obstacles,
+            spawn_points=spawn_points,
+            encounter_tables=encounter_tables,
+            background=_parse_color(data.get("background", "#101218")),
+            theme=data.get("theme"),
+            seed=data.get("seed"),
+            start_zone=bool(data.get("start_zone", False)),
             is_static=bool(data.get("is_static", True)),
         )
 
     def summarize(self) -> str:
         return f"{self.name} — danger: {self.danger_level}, bounds: {self.bounds.width}x{self.bounds.height}"
 
+    def get_spawn_point(self, role: str, fallback: Tuple[int, int]) -> Tuple[int, int]:
+        if role in self.spawn_points:
+            return self.spawn_points[role].as_tuple()
+        return fallback
+
+    def map_settings(self) -> Dict[str, object]:
+        return {
+            "size": (self.bounds.width, self.bounds.height),
+            "background": self.background,
+            "theme": self.theme,
+            "seed": self.seed,
+        }
+
 
 def create_outdoor_zone(*, seed: int | None = None, danger_level: str | None = None) -> Zone:
-    """Generate a lightweight procedural wilderness zone.
-
-    The generator is intentionally simple: it randomizes a bounding rectangle and
-    pulls a handful of themed spawn rules to hint at different outdoor biomes.
-    A seed can be supplied to make generation deterministic.
-    """
+    """Generate a lightweight procedural wilderness zone."""
 
     rng = Random(seed)
     width = rng.randint(720, 1240)
@@ -128,6 +196,18 @@ def create_outdoor_zone(*, seed: int | None = None, danger_level: str | None = N
             )
         )
 
+    spawn_points = {
+        "player": SpawnPoint(bounds.x + bounds.width // 2 - 80, bounds.y + bounds.height // 2 + 60),
+        "quest_giver": SpawnPoint(bounds.x + bounds.width // 2, bounds.y + bounds.height // 2),
+    }
+
+    encounter_tables = {
+        "wilderness": [
+            EncounterTableRef(table=f"{selected_theme}-creatures", weight=2),
+            EncounterTableRef(table=f"{selected_theme}-foraging", weight=1),
+        ]
+    }
+
     return Zone(
         name=f"{selected_theme}-expanse-{rng.randint(1000, 9999)}",
         description=f"A procedurally generated {selected_theme} outside the settled roads.",
@@ -135,11 +215,17 @@ def create_outdoor_zone(*, seed: int | None = None, danger_level: str | None = N
         danger_level=generated_danger,
         spawn_rules=spawn_rules,
         obstacles=obstacles,
+        spawn_points=spawn_points,
+        encounter_tables=encounter_tables,
+        background=(18, 20, 26),
+        theme=selected_theme,
+        seed=seed,
+        start_zone=False,
         is_static=False,
     )
 
 
-class ZoneManager:
+class ZoneRegistry:
     """Tracks available zones and the currently active one."""
 
     def __init__(
@@ -150,7 +236,8 @@ class ZoneManager:
     ) -> None:
         self._static_zones: Dict[str, Zone] = {zone.name: zone for zone in static_zones}
         self._procedural_factory = procedural_factory or create_outdoor_zone
-        self._active_zone: Zone | None = next(iter(static_zones), None)
+        default_zone = next((zone for zone in static_zones if zone.start_zone), None)
+        self._active_zone: Zone | None = default_zone or next(iter(static_zones), None)
         self._generated_zones: List[Zone] = []
 
     @property
@@ -182,3 +269,17 @@ class ZoneManager:
         if not self._active_zone:
             return "No zone selected"
         return self._active_zone.summarize()
+
+    def map_settings(self) -> Dict[str, object]:
+        if not self._active_zone:
+            return {"size": (960, 640), "background": (16, 18, 24)}
+        return self._active_zone.map_settings()
+
+    def spawn_point(self, role: str, fallback: Tuple[int, int]) -> Tuple[int, int]:
+        if not self._active_zone:
+            return fallback
+        return self._active_zone.get_spawn_point(role, fallback)
+
+
+# Preserve backwards compatibility for older imports
+ZoneManager = ZoneRegistry

@@ -102,9 +102,25 @@ class SpawnRuleDefinition(BaseModel):
     max_count: int | None = Field(default=None, ge=1)
 
 
+class SpawnPointDefinition(BaseModel):
+    x: int
+    y: int
+
+
+class EncounterTableDefinition(BaseModel):
+    table: str
+    weight: int = Field(default=1, ge=1)
+
+
 class ZoneDefinition(BaseDefinition):
     bounds: BoundsDefinition
     danger_level: str
     spawn_rules: list[SpawnRuleDefinition] = Field(default_factory=list)
     obstacles: list[BoundsDefinition] = Field(default_factory=list)
+    spawn_points: dict[str, SpawnPointDefinition] = Field(default_factory=dict)
+    encounter_tables: dict[str, list[EncounterTableDefinition]] = Field(default_factory=dict)
+    background: str = Field(default="#101218")
+    theme: str | None = None
+    seed: int | None = None
+    start_zone: bool = Field(default=False)
     is_static: bool = Field(default=True)
