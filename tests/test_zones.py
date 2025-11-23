@@ -15,6 +15,7 @@ def test_static_zones_load_from_data() -> None:
     camp = bundle.zones.create("camp")
     assert camp.bounds.width == 960
     assert any(rule.spawn == "vendor" for rule in camp.spawn_rules)
+    assert camp.obstacles
 
 
 def test_zone_manager_handles_procedural_zones() -> None:

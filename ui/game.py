@@ -10,6 +10,7 @@ import pygame
 
 from core.logging_config import get_logger, log_with_fields
 from systems import EventBus
+from world.zones import Zone
 from ui.context import GameContext, build_context
 
 SCREEN_SIZE = (960, 640)
@@ -58,32 +59,138 @@ class PygameMMO:
         self.quest_log: list[str] = []
         self.target_spawned = False
         self.target_defeated = False
+        self.zone_prompt: str = ""
         self.actors: Dict[str, Actor] = self._spawn_start_area()
         self.bus.subscribe("quest.completed", self._on_quest_completed)
         self.bus.subscribe("quest.turned_in", self._on_quest_turned_in)
+        self.bus.subscribe("zone.changed", self._on_zone_changed)
 
     def _spawn_start_area(self) -> Dict[str, Actor]:
         definitions = self.context.bundle.characters.definitions()
         appearances = self.context.bundle.appearances
         actors: Dict[str, Actor] = {}
 
+        zone = self.context.zones.active_zone
+        zone_rect = (
+            pygame.Rect((zone.bounds.x, zone.bounds.y), (zone.bounds.width, zone.bounds.height))
+            if zone
+            else pygame.Rect((0, 0), SCREEN_SIZE)
+        )
+        obstacles = self._zone_obstacles(zone) if zone else []
+        self.zone_prompt = f"{zone.name.title()}: {zone.description}" if zone else "Exploring the wilderness."
+
+        starting_y = zone_rect.y + zone_rect.height - 160
+        starting_x = zone_rect.x + 60
+
         hero_definition = definitions.get(PLAYER_NAME, {})
         hero_appearance = appearances.create(hero_definition.get("appearance", "hero"))
+        hero_rect = pygame.Rect((starting_x, starting_y), (54, 54))
         actors[PLAYER_NAME] = Actor(
             name=PLAYER_NAME,
             color=pygame.Color(hero_appearance.color),
-            rect=pygame.Rect((260, 320), (54, 54)),
+            rect=self._resolve_obstacle_collision(hero_rect, hero_rect, obstacles, zone_rect),
         )
 
         guide_color = pygame.Color(214, 185, 110)
+        guide_rect = pygame.Rect((starting_x + 120, starting_y - 20), (54, 54))
         actors[QUEST_GIVER_NAME] = Actor(
             name=QUEST_GIVER_NAME,
             color=guide_color,
-            rect=pygame.Rect((360, 320), (54, 54)),
+            rect=self._resolve_obstacle_collision(guide_rect, guide_rect, obstacles, zone_rect),
             speed=0,
         )
         self.quest_log.append("Find the Guide and press E to accept the quest.")
         return actors
+
+    def _zone_rect(self, zone: Zone | None) -> pygame.Rect | None:
+        if not zone:
+            return None
+        bounds = zone.bounds
+        return pygame.Rect((bounds.x, bounds.y), (bounds.width, bounds.height))
+
+    def _zone_obstacles(self, zone: Zone | None) -> list[pygame.Rect]:
+        if not zone:
+            return []
+        return [pygame.Rect((obs.x, obs.y), (obs.width, obs.height)) for obs in zone.obstacles]
+
+    def _resolve_obstacle_collision(
+        self,
+        original: pygame.Rect,
+        candidate: pygame.Rect,
+        obstacles: list[pygame.Rect],
+        bounds: pygame.Rect,
+    ) -> pygame.Rect:
+        if not obstacles:
+            return candidate
+        if not any(candidate.colliderect(obstacle) for obstacle in obstacles):
+            return candidate
+
+        horizontal = pygame.Rect((candidate.x, original.y), (candidate.width, candidate.height))
+        vertical = pygame.Rect((original.x, candidate.y), (candidate.width, candidate.height))
+
+        if not any(horizontal.colliderect(obstacle) for obstacle in obstacles):
+            return horizontal
+        if not any(vertical.colliderect(obstacle) for obstacle in obstacles):
+            return vertical
+        return original
+
+    def _detect_boundary_crossing(self, proposed: pygame.Rect, bounds: pygame.Rect) -> str | None:
+        if proposed.x < bounds.x:
+            return "west"
+        if proposed.x + proposed.width > bounds.x + bounds.width:
+            return "east"
+        if proposed.y < bounds.y:
+            return "north"
+        if proposed.y + proposed.height > bounds.y + bounds.height:
+            return "south"
+        return None
+
+    def _entry_position_for_zone(self, player: Actor, zone: Zone, direction: str | None) -> pygame.Rect:
+        bounds = self._zone_rect(zone)
+        assert bounds is not None
+        margin = 24
+        if direction == "west":
+            x = bounds.x + bounds.width - player.rect.width - margin
+            y = bounds.y + bounds.height // 2
+        elif direction == "east":
+            x = bounds.x + margin
+            y = bounds.y + bounds.height // 2
+        elif direction == "north":
+            x = bounds.x + bounds.width // 2
+            y = bounds.y + bounds.height - player.rect.height - margin
+        else:
+            x = bounds.x + bounds.width // 2
+            y = bounds.y + margin
+        return pygame.Rect((x, y), (player.rect.width, player.rect.height))
+
+    def _reset_zone_population(self, zone: Zone, direction: str | None = None) -> None:
+        player = self.actors.get(PLAYER_NAME)
+        if not player:
+            return
+
+        self.actors = {PLAYER_NAME: player}
+        self.zone_prompt = f"{zone.name.title()}: {zone.description}"
+        bounds = self._zone_rect(zone) or pygame.Rect((0, 0), SCREEN_SIZE)
+        obstacles = self._zone_obstacles(zone)
+
+        entry_rect = self._entry_position_for_zone(player, zone, direction)
+        clamped_x = max(bounds.x, min(bounds.x + bounds.width - entry_rect.width, entry_rect.x))
+        clamped_y = max(bounds.y, min(bounds.y + bounds.height - entry_rect.height, entry_rect.y))
+        entry_rect.x, entry_rect.y = clamped_x, clamped_y
+        player.rect = self._resolve_obstacle_collision(player.rect, entry_rect, obstacles, bounds)
+
+        if zone.is_static:
+            guide_color = pygame.Color(214, 185, 110)
+            guide_rect = pygame.Rect((player.rect.x + 120, player.rect.y - 20), (54, 54))
+            self.actors[QUEST_GIVER_NAME] = Actor(
+                name=QUEST_GIVER_NAME,
+                color=guide_color,
+                rect=self._resolve_obstacle_collision(player.rect, guide_rect, obstacles, bounds),
+                speed=0,
+            )
+        else:
+            self.target_spawned = False
+            self._maybe_spawn_target()
 
     def _handle_input(self, dt: float) -> None:
         keys = pygame.key.get_pressed()
@@ -101,9 +208,24 @@ class PygameMMO:
         if keys[pygame.K_s] or keys[pygame.K_DOWN]:
             dy += player.speed * dt
 
-        zone_bounds = self.context.zones.active_zone.bounds if self.context.zones.active_zone else None
-        limit = (zone_bounds.width, zone_bounds.height) if zone_bounds else SCREEN_SIZE
-        player.move(dx, dy, limit)
+        active_zone = self.context.zones.active_zone
+        bounds = self._zone_rect(active_zone)
+        if bounds:
+            proposed = pygame.Rect(
+                (int(player.rect.x + dx), int(player.rect.y + dy)), (player.rect.width, player.rect.height)
+            )
+            direction = self._detect_boundary_crossing(proposed, bounds)
+            if direction:
+                self._transition_zone(direction)
+                return
+
+            clamped_x = max(bounds.x, min(bounds.x + bounds.width - player.rect.width, proposed.x))
+            clamped_y = max(bounds.y, min(bounds.y + bounds.height - player.rect.height, proposed.y))
+            candidate = pygame.Rect((clamped_x, clamped_y), (player.rect.width, player.rect.height))
+            obstacles = self._zone_obstacles(active_zone)
+            player.rect = self._resolve_obstacle_collision(player.rect, candidate, obstacles, bounds)
+        else:
+            player.move(dx, dy, SCREEN_SIZE)
 
     def _attempt_attack(self) -> None:
         player = self.actors.get(PLAYER_NAME)
@@ -134,7 +256,7 @@ class PygameMMO:
         status = self._quest_status()
         if status == "available":
             self.bus.publish("quest.accepted", quest="defeat-shade", owner=PLAYER_NAME)
-            self.quest_log.append("Quest accepted: Defeat Shade before returning to camp.")
+            self.quest_log.append("Quest accepted: Defeat Shade before returning to the Guide.")
         elif status == "completed":
             self.bus.publish("quest.turned_in", quest="defeat-shade", owner=PLAYER_NAME)
             self.quest_log.append("Quest turned in: The Guide rewards your effort.")
@@ -147,13 +269,48 @@ class PygameMMO:
         appearances = self.context.bundle.appearances
         appearance_name = definitions[self.target_name]["appearance"]
         appearance = appearances.create(appearance_name)
+        zone = self.context.zones.active_zone
+        bounds = self._zone_rect(zone) or pygame.Rect((0, 0), SCREEN_SIZE)
+        spawn_x = bounds.x + bounds.width - 220
+        spawn_y = bounds.y + bounds.height // 2
+        target_rect = pygame.Rect((spawn_x, spawn_y), (54, 54))
+        target_rect = self._resolve_obstacle_collision(
+            target_rect, target_rect, self._zone_obstacles(zone), bounds
+        )
         self.actors[self.target_name] = Actor(
             name=self.target_name,
             color=pygame.Color(appearance.color),
-            rect=pygame.Rect((640, 280), (54, 54)),
+            rect=target_rect,
         )
         self.target_spawned = True
         self.quest_log.append("Shade has appeared beyond the campfire.")
+
+    def _transition_zone(self, direction: str) -> None:
+        current = self.context.zones.active_zone
+        if not current:
+            return
+
+        if current.is_static:
+            next_zone = self.context.zones.spawn_outdoor_zone()
+        else:
+            destination = (
+                "town"
+                if "town" in self.context.zones.static_zones
+                else next(iter(self.context.zones.static_zones), None)
+            )
+            if destination:
+                next_zone = self.context.zones.set_active(destination)
+            else:
+                return
+
+        self.bus.publish(
+            "zone.changed",
+            previous=current.name,
+            current=next_zone.name,
+            direction=direction,
+            danger=next_zone.danger_level,
+        )
+        self._reset_zone_population(next_zone, direction)
 
     def _render(self, screen: pygame.Surface) -> None:
         screen.fill(BACKGROUND)
@@ -169,6 +326,8 @@ class PygameMMO:
             screen.blit(hp_text, (actor.rect.x - 8, actor.rect.y - 28))
 
         prompts: list[str] = ["Move with WASD/arrow keys."]
+        if self.zone_prompt:
+            prompts.insert(0, self.zone_prompt)
         status = self._quest_status()
         if status == "available":
             prompts.append("Press E near the Guide to accept the quest.")
@@ -223,6 +382,13 @@ class PygameMMO:
             self.quest_log.append(f"Received {reward} gold from the Guide.")
         else:
             self.quest_log.append("The Guide thanks you for your help.")
+
+    def _on_zone_changed(self, event) -> None:
+        current = event.payload.get("current", "unknown")
+        danger = event.payload.get("danger", "unknown")
+        direction = event.payload.get("direction")
+        direction_note = f" via {direction}" if direction else ""
+        self.quest_log.append(f"Entered {current}{direction_note}. Danger: {danger}.")
 
     def run(self) -> None:
         pygame.init()
