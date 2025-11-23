@@ -106,6 +106,8 @@ class GameSetupTest(unittest.TestCase):
 
         self.assertIn(PLAYER_NAME, game.actors)
         self.assertIn(DEFAULT_ENEMY_NAME, game.actors)
+        self.assertIsNotNone(context.zones.active_zone)
+        self.assertEqual(context.zones.active_zone.name, "camp")
 
         player_rect = game.actors[PLAYER_NAME].rect
         self.assertGreater(player_rect.width, 0)

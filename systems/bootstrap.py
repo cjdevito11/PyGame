@@ -8,7 +8,14 @@ from core.registry import Registry
 from core.validation import DefinitionValidator
 from persistence.loader import load_definitions
 from world.entities import Appearance, CharacterClass, CharacterProfile, Item
-from world.schemas import AppearanceDefinition, CharacterDefinition, ClassDefinition, ItemDefinition
+from world.schemas import (
+    AppearanceDefinition,
+    CharacterDefinition,
+    ClassDefinition,
+    ItemDefinition,
+    ZoneDefinition,
+)
+from world.zones import Zone
 
 
 class RegistryBundle:
@@ -21,12 +28,14 @@ class RegistryBundle:
         self.classes = Registry("classes", self.validator, CharacterClass.from_definition)
         self.items = Registry("items", self.validator, Item.from_definition)
         self.characters = Registry("characters", self.validator, CharacterProfile.from_definition)
+        self.zones = Registry("zones", self.validator, Zone.from_definition)
 
     def _register_schemas(self) -> None:
         self.validator.register_schema("appearances", AppearanceDefinition)
         self.validator.register_schema("classes", ClassDefinition)
         self.validator.register_schema("items", ItemDefinition)
         self.validator.register_schema("characters", CharacterDefinition)
+        self.validator.register_schema("zones", ZoneDefinition)
 
     def load(self) -> None:
         datasets: Dict[str, list] = {}
@@ -36,6 +45,8 @@ class RegistryBundle:
             "items.json",
             "characters.yaml",
             "characters.json",
+            "zones.yaml",
+            "zones.json",
         ):
             path = self.base_path / file_name
             if path.exists():
@@ -49,3 +60,5 @@ class RegistryBundle:
             self.items.load_many(datasets["items"])
         if "characters" in datasets:
             self.characters.load_many(datasets["characters"])
+        if "zones" in datasets:
+            self.zones.load_many(datasets["zones"])

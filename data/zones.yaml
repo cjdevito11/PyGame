@@ -1,0 +1,35 @@
+- name: camp
+  description: "A quiet camp where adventurers rest and trade."
+  bounds:
+    x: 0
+    y: 0
+    width: 960
+    height: 640
+  danger_level: "none"
+  spawn_rules:
+    - spawn: "vendor"
+      weight: 1
+      max_count: 2
+    - spawn: "campfire"
+      weight: 1
+      max_count: 1
+  is_static: true
+- name: town
+  description: "A bustling frontier town protected by wooden palisades."
+  bounds:
+    x: 0
+    y: 0
+    width: 1200
+    height: 760
+  danger_level: "low"
+  spawn_rules:
+    - spawn: "villager"
+      weight: 4
+      max_count: 12
+    - spawn: "guard"
+      weight: 2
+      max_count: 4
+    - spawn: "trader"
+      weight: 1
+      max_count: 3
+  is_static: true
