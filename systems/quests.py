@@ -17,7 +17,8 @@ class QuestRecord:
     trigger_event: str
     owner: str | None = None
     reward_gold: int = 0
-    status: str = "new"
+    condition: Callable[[Event], bool] | None = None
+    status: str = "available"
 
 
 class QuestSystem:
@@ -27,6 +28,8 @@ class QuestSystem:
         self.bus = bus
         self.quests: Dict[str, QuestRecord] = {}
         self.logger = get_logger(__name__)
+        self.bus.subscribe("quest.accepted", self._on_accept_event)
+        self.bus.subscribe("quest.turned_in", self._on_turn_in_event)
 
     def register_quest(
         self,
@@ -44,9 +47,10 @@ class QuestSystem:
             trigger_event=trigger_event,
             owner=owner,
             reward_gold=reward_gold,
+            condition=condition,
         )
         self.quests[identifier] = record
-        self.bus.subscribe(trigger_event, lambda event: self._handle_trigger(record, event, condition))
+        self.bus.subscribe(trigger_event, lambda event: self._handle_trigger(record.identifier, event))
         log_with_fields(
             self.logger,
             logging.INFO,
@@ -56,12 +60,11 @@ class QuestSystem:
             owner=owner or "<none>",
         )
 
-    def _handle_trigger(
-        self, quest: QuestRecord, event: Event, condition: Callable[[Event], bool] | None
-    ) -> QuestRecord:
-        if quest.status == "completed":
+    def _handle_trigger(self, quest_id: str, event: Event) -> QuestRecord:
+        quest = self.quests[quest_id]
+        if quest.status != "accepted":
             return quest
-        if condition and not condition(event):
+        if quest.condition and not quest.condition(event):
             return quest
 
         quest.status = "completed"
@@ -69,7 +72,6 @@ class QuestSystem:
             "quest.completed",
             quest=quest.identifier,
             owner=quest.owner,
-            reward_gold=quest.reward_gold,
         )
         log_with_fields(
             self.logger,
@@ -77,6 +79,49 @@ class QuestSystem:
             "Quest completed",
             identifier=quest.identifier,
             owner=quest.owner or "<none>",
+        )
+        return quest
+
+    def accept_quest(self, identifier: str, *, owner: str | None = None) -> QuestRecord:
+        quest = self.quests[identifier]
+        if quest.status != "available":
+            return quest
+        quest.owner = owner or quest.owner
+        quest.status = "accepted"
+        log_with_fields(
+            self.logger,
+            logging.INFO,
+            "Quest accepted",
+            identifier=quest.identifier,
+            owner=quest.owner or "<none>",
+        )
+        return quest
+
+    def turn_in_quest(self, identifier: str) -> QuestRecord:
+        quest = self.quests[identifier]
+        if quest.status != "completed":
+            return quest
+        quest.status = "turned_in"
+        if quest.reward_gold:
+            self.bus.publish("economy.reward", recipient=quest.owner, reward_gold=quest.reward_gold)
+        log_with_fields(
+            self.logger,
+            logging.INFO,
+            "Quest turned in",
+            identifier=quest.identifier,
+            owner=quest.owner or "<none>",
             reward=quest.reward_gold,
         )
+        return quest
+
+    def _on_accept_event(self, event: Event) -> QuestRecord:
+        quest_id = event.payload["quest"]
+        owner = event.payload.get("owner")
+        return self.accept_quest(quest_id, owner=owner)
+
+    def _on_turn_in_event(self, event: Event) -> QuestRecord:
+        quest_id = event.payload["quest"]
+        quest = self.turn_in_quest(quest_id)
+        if quest.status == "turned_in":
+            event.payload["reward_gold"] = quest.reward_gold
         return quest

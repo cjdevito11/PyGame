@@ -48,12 +48,16 @@ def test_event_flow_completes_quests_and_rewards_gold() -> None:
         reward_gold=7,
         condition=lambda event: event.payload.get("defender") == "Shade",
     )
+    bus.publish("quest.accepted", quest="defeat-shade", owner="Aria")
 
     bus.publish("combat.attack", attacker="Aria", defender="Shade", weapon="bronze_sword")
 
     assert "applied" in bonus_log
     assert combat.characters["Shade"].hit_points <= 0
     assert quests.quests["defeat-shade"].status == "completed"
+
+    bus.publish("quest.turned_in", quest="defeat-shade", owner="Aria")
+    assert quests.quests["defeat-shade"].status == "turned_in"
     assert economy.wallets["Aria"] == 12  # 5 starting gold + 7 reward
 
     bus.publish(
