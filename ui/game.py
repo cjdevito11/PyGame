@@ -550,7 +550,16 @@ class PygameMMO:
     def _maybe_spawn_target(self) -> None:
         zone = self.context.zones.active_zone
         quest = self._target_quest()
-        if self.target_spawned or not quest or not self._zone_allows_target(zone):
+        if self.target_spawned or not quest:
+            return
+        if not self._zone_allows_target(zone):
+            log_with_fields(
+                logger,
+                logging.INFO,
+                "Zone does not allow quest target",
+                zone=getattr(zone, "name", "<none>"),
+                target=self.target_name,
+            )
             return
 
         try:
@@ -559,9 +568,9 @@ class PygameMMO:
             appearance_name = definitions[self.target_name]["appearance"]
             appearance = appearances.create(appearance_name)
             bounds = self._zone_rect(zone) or pygame.Rect((0, 0), self.screen_size)
-            spawn_x = bounds.x + bounds.width - 220
-            spawn_y = bounds.y + bounds.height // 2
-            target_rect = pygame.Rect((spawn_x, spawn_y), (54, 54))
+            spawn_center = zone.get_spawn_point("quest_target", (bounds.centerx + 180, bounds.centery))
+            target_rect = pygame.Rect((0, 0), (54, 54))
+            target_rect.center = spawn_center
             target_rect = self._resolve_obstacle_collision(
                 target_rect, target_rect, self._zone_obstacles(zone), bounds
             )
@@ -585,7 +594,7 @@ class PygameMMO:
     def _zone_allows_target(self, zone: Zone | None) -> bool:
         if not zone:
             return False
-        return (not zone.is_static) and zone.danger_level not in {"none", "low"}
+        return (not zone.is_static) and zone.danger_level not in {"none", "low"} and zone.has_spawn(self.target_name)
 
     def _seed_zone_spawns(
         self, zone: Zone, bounds: pygame.Rect, obstacles: list[pygame.Rect], rng: Random
@@ -920,8 +929,9 @@ class PygameMMO:
         if not current:
             return
 
+        focus_spawn = self.target_name if self._target_quest() else None
         if current.is_static:
-            next_zone = self.context.zones.spawn_outdoor_zone()
+            next_zone = self.context.zones.spawn_outdoor_zone(focus_spawn=focus_spawn)
         else:
             destination = next(iter(self.context.zones.static_zones), None)
             if destination:
