@@ -126,6 +126,7 @@ class PygameMMO:
         self.bus: EventBus = context.bus
         self.running = False
         self.font: pygame.font.Font | None = None
+        self.screen_size = SCREEN_SIZE
         self.quest_log: list[str] = []
         self.target_spawned = False
         self.target_defeated = False
@@ -151,6 +152,7 @@ class PygameMMO:
         self.bus.subscribe("quest.progress", self._on_quest_progress)
         self.bus.subscribe("zone.changed", self._on_zone_changed)
         self.bus.subscribe("inventory.item_added", self._on_item_added)
+        self.show_objective_indicator = True
 
     def _spawn_start_area(self) -> Dict[str, Actor]:
         definitions = self.context.bundle.characters.definitions()
@@ -161,17 +163,17 @@ class PygameMMO:
         zone_rect = (
             pygame.Rect((zone.bounds.x, zone.bounds.y), (zone.bounds.width, zone.bounds.height))
             if zone
-            else pygame.Rect((0, 0), SCREEN_SIZE)
+            else pygame.Rect((0, 0), self.screen_size)
         )
         obstacles = self._zone_obstacles(zone) if zone else []
         self.zone_prompt = f"{zone.name.title()}: {zone.description}" if zone else "Exploring the wilderness."
 
-        starting_y = zone_rect.y + zone_rect.height - 160
-        starting_x = zone_rect.x + 60
+        zone_center = (zone_rect.centerx, zone_rect.centery)
 
         hero_definition = definitions.get(PLAYER_NAME, {})
         hero_appearance = appearances.create(hero_definition.get("appearance", "hero"))
-        hero_rect = pygame.Rect((starting_x, starting_y), (54, 54))
+        hero_rect = pygame.Rect((0, 0), (54, 54))
+        hero_rect.center = (zone_center[0] - 80, zone_center[1] + 60)
         hero_rect = self._resolve_obstacle_collision(hero_rect, hero_rect, obstacles, zone_rect)
         hero_rect = self._clamp_to_bounds(hero_rect, zone_rect)
         actors[PLAYER_NAME] = Actor(
@@ -181,7 +183,8 @@ class PygameMMO:
         )
 
         guide_color = pygame.Color(214, 185, 110)
-        guide_rect = pygame.Rect((starting_x + 120, starting_y - 20), (54, 54))
+        guide_rect = pygame.Rect((0, 0), (54, 54))
+        guide_rect.center = zone_center
         guide_rect = self._resolve_obstacle_collision(guide_rect, guide_rect, obstacles, zone_rect)
         guide_rect = self._clamp_to_bounds(guide_rect, zone_rect)
         actors[QUEST_GIVER_NAME] = Actor(
@@ -261,7 +264,7 @@ class PygameMMO:
 
         self.actors = {PLAYER_NAME: player}
         self.zone_prompt = f"{zone.name.title()}: {zone.description}"
-        bounds = self._zone_rect(zone) or pygame.Rect((0, 0), SCREEN_SIZE)
+        bounds = self._zone_rect(zone) or pygame.Rect((0, 0), self.screen_size)
         obstacles = self._zone_obstacles(zone)
         rng = Random(f"{zone.name}-{zone.danger_level}")
 
@@ -275,11 +278,13 @@ class PygameMMO:
         self.target_spawned = False
         if zone.is_static:
             guide_color = pygame.Color(214, 185, 110)
-            guide_rect = pygame.Rect((player.rect.x + 120, player.rect.y - 20), (54, 54))
+            guide_rect = pygame.Rect((0, 0), (54, 54))
+            guide_rect.center = bounds.center
+            resolved = self._resolve_obstacle_collision(player.rect, guide_rect, obstacles, bounds)
             self.actors[QUEST_GIVER_NAME] = Actor(
                 name=QUEST_GIVER_NAME,
                 color=guide_color,
-                rect=self._resolve_obstacle_collision(player.rect, guide_rect, obstacles, bounds),
+                rect=resolved,
                 speed=0,
             )
 
@@ -320,7 +325,7 @@ class PygameMMO:
                 obstacles = self._zone_obstacles(active_zone)
                 player.rect = self._resolve_obstacle_collision(player.rect, candidate, obstacles, bounds)
             else:
-                player.move(dx, dy, SCREEN_SIZE)
+                player.move(dx, dy, self.screen_size)
         except Exception as exc:  # pragma: no cover - defensive bounds guard
             log_with_fields(
                 logger,
@@ -329,7 +334,7 @@ class PygameMMO:
                 error=str(exc),
                 zone=getattr(active_zone, "name", "none"),
             )
-            player.move(dx, dy, SCREEN_SIZE)
+            player.move(dx, dy, self.screen_size)
 
         self.tutorial.record_movement(dx, dy)
 
@@ -409,6 +414,26 @@ class PygameMMO:
             prompts.append(f"Quest complete: {quest.description}.")
 
         return prompts
+
+    def _objective_target_position(self) -> Tuple[int, int] | None:
+        quest = self._active_quest()
+        if not quest:
+            return None
+
+        if quest.status == "completed":
+            guide = self.actors.get(QUEST_GIVER_NAME)
+            return guide.rect.center if guide else None
+
+        targets = self._quest_targets(quest)
+        for target_name in targets:
+            actor = self.actors.get(target_name)
+            if actor:
+                return actor.rect.center
+
+        guide = self.actors.get(QUEST_GIVER_NAME)
+        if guide:
+            return guide.rect.center
+        return None
 
     def _target_quest(self):
         for quest in self._quests():
@@ -518,7 +543,7 @@ class PygameMMO:
             appearances = self.context.bundle.appearances
             appearance_name = definitions[self.target_name]["appearance"]
             appearance = appearances.create(appearance_name)
-            bounds = self._zone_rect(zone) or pygame.Rect((0, 0), SCREEN_SIZE)
+            bounds = self._zone_rect(zone) or pygame.Rect((0, 0), self.screen_size)
             spawn_x = bounds.x + bounds.width - 220
             spawn_y = bounds.y + bounds.height // 2
             target_rect = pygame.Rect((spawn_x, spawn_y), (54, 54))
@@ -648,7 +673,7 @@ class PygameMMO:
         banner_text = self.font.render(self.loot_banner, True, (255, 223, 128))
         padding = 10
         rect = banner_text.get_rect()
-        rect.centerx = SCREEN_SIZE[0] // 2
+        rect.centerx = self.screen_size[0] // 2
         rect.y = 10
         box = pygame.Rect(
             rect.x - padding,
@@ -762,7 +787,7 @@ class PygameMMO:
         panel_width = 660
         panel_height = 360
         margin = 14
-        panel_rect = pygame.Rect(SCREEN_SIZE[0] - panel_width - margin, margin, panel_width, panel_height)
+        panel_rect = pygame.Rect(self.screen_size[0] - panel_width - margin, margin, panel_width, panel_height)
         pygame.draw.rect(screen, (30, 36, 48), panel_rect, border_radius=10)
         pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=10)
 
@@ -906,8 +931,8 @@ class PygameMMO:
         combatant = self._player_combatant()
         if not combatant or not self.font:
             return
-        x = SCREEN_SIZE[0] - 340
-        y = SCREEN_SIZE[1] - 140
+        x = self.screen_size[0] - 340
+        y = self.screen_size[1] - 140
         pygame.draw.rect(screen, (22, 26, 32), pygame.Rect(x - 10, y - 16, 330, 120), border_radius=8)
         pygame.draw.rect(screen, (90, 110, 130), pygame.Rect(x - 10, y - 16, 330, 120), 1, border_radius=8)
         resources = ", ".join(f"{k}: {v}" for k, v in combatant.resource_pools.items()) or "No resource"
@@ -932,6 +957,41 @@ class PygameMMO:
             entry = self.font.render(f"{idx+1}. {ability.replace('_', ' ')} (CD {cd})", True, (195, 200, 210))
             screen.blit(entry, (x + 12, y + 76 + idx * 18))
 
+    def _render_objective_indicator(self, screen: pygame.Surface) -> None:
+        if not self.show_objective_indicator:
+            return
+
+        player = self.actors.get(PLAYER_NAME)
+        if not player:
+            return
+
+        target_pos = self._objective_target_position()
+        if not target_pos:
+            return
+
+        px, py = player.rect.center
+        dx = target_pos[0] - px
+        dy = target_pos[1] - py
+        magnitude = max(1.0, (dx ** 2 + dy ** 2) ** 0.5)
+        norm_x, norm_y = dx / magnitude, dy / magnitude
+
+        start = (int(px + norm_x * 40), int(py + norm_y * 40))
+        end = (int(px + norm_x * 80), int(py + norm_y * 80))
+        color = (240, 200, 120)
+        pygame.draw.line(screen, color, start, end, 4)
+
+        perp_x, perp_y = -norm_y, norm_x
+        arrow_tip = end
+        arrow_left = (
+            int(end[0] - norm_x * 14 + perp_x * 8),
+            int(end[1] - norm_y * 14 + perp_y * 8),
+        )
+        arrow_right = (
+            int(end[0] - norm_x * 14 - perp_x * 8),
+            int(end[1] - norm_y * 14 - perp_y * 8),
+        )
+        pygame.draw.polygon(screen, color, [arrow_tip, arrow_left, arrow_right])
+
     def _render(self, screen: pygame.Surface) -> None:
         screen.fill(BACKGROUND)
         assert self.font is not None
@@ -949,6 +1009,7 @@ class PygameMMO:
             hp_text = self.font.render(label, True, (236, 240, 241))
             screen.blit(hp_text, (actor.rect.x - 8, actor.rect.y - 28))
 
+        self._render_objective_indicator(screen)
         self._render_loot_banner(screen)
 
         margin = 16
@@ -977,6 +1038,7 @@ class PygameMMO:
         else:
             prompts.append("Press H to re-open control hints.")
         prompts.append("Press I to toggle your inventory. Drag items to equip, sell, or drop.")
+        prompts.append("Press L to toggle the objective indicator.")
         prompts.append("Click monsters to attack when you're in range.")
 
         prompts.extend(self._quest_prompts())
@@ -995,7 +1057,7 @@ class PygameMMO:
             guide = self.actors[QUEST_GIVER_NAME]
             screen.blit(bubble, (guide.rect.x - 8, guide.rect.y - 28))
 
-        log_title_y = SCREEN_SIZE[1] - 120
+        log_title_y = self.screen_size[1] - 120
         log_title = self.font.render("Quest Log", True, (170, 186, 193))
         screen.blit(log_title, (margin, log_title_y))
         for idx, entry in enumerate(self.quest_log[-4:]):
@@ -1106,7 +1168,18 @@ class PygameMMO:
     def run(self) -> None:
         pygame.init()
         self.font = pygame.font.SysFont("arial", 18)
-        screen = pygame.display.set_mode(SCREEN_SIZE)
+        try:
+            display_info = pygame.display.Info()
+            self.screen_size = (display_info.current_w, display_info.current_h)
+        except Exception:  # pragma: no cover - fallback for unexpected driver issues
+            self.screen_size = SCREEN_SIZE
+
+        try:
+            screen = pygame.display.set_mode(self.screen_size, pygame.FULLSCREEN)
+        except Exception as exc:  # pragma: no cover - defensive video fallback
+            log_with_fields(logger, logging.WARNING, "Fullscreen mode failed, falling back", error=str(exc))
+            self.screen_size = SCREEN_SIZE
+            screen = pygame.display.set_mode(self.screen_size)
         clock = pygame.time.Clock()
         self.running = True
 
@@ -1139,6 +1212,8 @@ class PygameMMO:
                         self.tutorial.request_help()
                     if event.key == pygame.K_i:
                         self.show_inventory = not self.show_inventory
+                    if event.key == pygame.K_l:
+                        self.show_objective_indicator = not self.show_objective_indicator
 
             for actor in self.actors.values():
                 actor.update_cooldown(dt)
