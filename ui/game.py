@@ -146,6 +146,8 @@ class PygameMMO:
         self.pack_slots: list[ItemSlot] = []
         self.equip_slots: list[ItemSlot] = []
         self.action_slots: list[ItemSlot] = []
+        self.pack_canvas_slot: ItemSlot | None = None
+        self.inventory_positions: dict[int, Tuple[int, int]] = {}
         self.toolbar_buttons: list[tuple[str, pygame.Rect]] = []
         self.quest_panel_tab: pygame.Rect | None = None
         self.dragging_slot: ItemSlot | None = None
@@ -563,13 +565,22 @@ class PygameMMO:
         slot = self._slot_for_position(pos)
         item = self.dragging_slot.item
         combatant = self._player_combatant()
+        slot_size = self.dragging_slot.rect.width
         if item and slot:
             if slot.category == "equip" and slot.slot_name == item.slot:
                 self.context.combat.equip_item(PLAYER_NAME, item.name)
+                self._forget_pack_position(item)
             elif slot.category == "pack" and self.dragging_slot.category == "equip":
                 if combatant and self.dragging_slot.slot_name:
                     if combatant.equipped.get(self.dragging_slot.slot_name) is item:
                         combatant.equipped.pop(self.dragging_slot.slot_name, None)
+                self._place_item_in_pack(item, (slot.rect.x, slot.rect.y), slot_size, 6)
+            elif slot.category == "pack":
+                self._place_item_in_pack(item, (slot.rect.x, slot.rect.y), slot_size, 6)
+            elif slot.category == "pack_canvas":
+                target_x = pos[0] - self.drag_offset[0]
+                target_y = pos[1] - self.drag_offset[1]
+                self._place_item_in_pack(item, (target_x, target_y), slot_size, 6)
             elif slot.category == "sell":
                 try:
                     result = self.bus.publish("economy.sell", seller=PLAYER_NAME, store="camp", item=item.name)
@@ -580,6 +591,13 @@ class PygameMMO:
                     log_with_fields(logger, logging.WARNING, "Sell failed", item=item.name, error=str(exc))
             elif slot.category == "drop":
                 self._drop_item(item)
+
+        if item and slot and slot.category in {"sell", "drop"}:
+            self._forget_pack_position(item)
+        elif item and not slot and self.pack_canvas_slot and self.pack_canvas_slot.rect.collidepoint(pos):
+            target_x = pos[0] - self.drag_offset[0]
+            target_y = pos[1] - self.drag_offset[1]
+            self._place_item_in_pack(item, (target_x, target_y), slot_size, 6)
 
         self.dragging_slot = None
 
@@ -746,10 +764,21 @@ class PygameMMO:
         screen.blit(banner_text, (rect.x, rect.y))
 
     def _slot_for_position(self, pos: Tuple[int, int]) -> ItemSlot | None:
-        for slot in self.equip_slots + self.pack_slots + self.action_slots:
+        for slot in self.equip_slots + self.pack_slots + ([self.pack_canvas_slot] if self.pack_canvas_slot else []) + self.action_slots:
             if slot.rect.collidepoint(pos):
                 return slot
         return None
+
+    def _forget_pack_position(self, item: Item) -> None:
+        self.inventory_positions.pop(id(item), None)
+
+    def _place_item_in_pack(self, item: Item, pos: Tuple[int, int], slot_size: int, padding: int) -> None:
+        if not self.pack_canvas_slot:
+            return
+        canvas = self.pack_canvas_slot.rect
+        clamped_x = max(canvas.x + padding, min(canvas.right - slot_size - padding, pos[0]))
+        clamped_y = max(canvas.y + padding, min(canvas.bottom - slot_size - padding, pos[1]))
+        self.inventory_positions[id(item)] = (clamped_x, clamped_y)
 
     def _draw_item_icon(self, screen: pygame.Surface, item: Item, rect: pygame.Rect, *, highlight: bool = False) -> None:
         assert self.font is not None
@@ -844,50 +873,66 @@ class PygameMMO:
         if not combatant:
             return
 
-        panel_width = 660
-        panel_height = 360
-        margin = 14
+        panel_width = 780
+        panel_height = 440
+        margin = 16
+        padding = 16
+        section_gap = 14
         panel_rect = pygame.Rect(self.screen_size[0] - panel_width - margin, margin, panel_width, panel_height)
-        pygame.draw.rect(screen, (30, 36, 48), panel_rect, border_radius=10)
-        pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=10)
+        pygame.draw.rect(screen, (28, 32, 42), panel_rect, border_radius=12)
+        pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=12)
 
         self.pack_slots = []
         self.equip_slots = []
         self.action_slots = []
+        self.pack_canvas_slot = None
 
-        title = self.font.render("Inventory (I) — drag to equip, sell, or drop", True, (220, 230, 235))
-        screen.blit(title, (panel_rect.x + 12, panel_rect.y + 10))
+        title = self.font.render("Inventory (I) — drag to equip, move, sell, or drop", True, (225, 232, 238))
+        screen.blit(title, (panel_rect.x + padding, panel_rect.y + padding - 4))
+
+        info_rect = pygame.Rect(
+            panel_rect.x + padding,
+            panel_rect.y + 34,
+            panel_rect.width - padding * 2,
+            76,
+        )
+        pygame.draw.rect(screen, (22, 26, 34), info_rect, border_radius=10)
+        pygame.draw.rect(screen, (78, 96, 118), info_rect, 1, border_radius=10)
 
         gold_amount = self.context.economy.wallets.get(PLAYER_NAME, combatant.gold)
         gold_text = self.font.render(f"Gold: {gold_amount}", True, (240, 210, 140))
-        screen.blit(gold_text, (panel_rect.x + 12, panel_rect.y + 36))
-
         stats_line = self.font.render(
             f"STR {combatant.strength} | AGI {combatant.agility} | MAS {combatant.mastery}",
             True,
-            (200, 210, 225),
+            (205, 214, 228),
         )
-        screen.blit(stats_line, (panel_rect.x + 12, panel_rect.y + 58))
-
         skills = ", ".join(f"{name.replace('_', ' ').title()} {rank}" for name, rank in combatant.skills.items())
-        skills_line = self.font.render(f"Skills: {skills or 'None learned yet'}", True, (180, 190, 210))
-        screen.blit(skills_line, (panel_rect.x + 12, panel_rect.y + 78))
+        skills_line = self.font.render(f"Skills: {skills or 'None learned yet'}", True, (182, 194, 210))
+        screen.blit(gold_text, (info_rect.x + 12, info_rect.y + 10))
+        screen.blit(stats_line, (info_rect.x + 12, info_rect.y + 30))
+        screen.blit(skills_line, (info_rect.x + 12, info_rect.y + 50))
 
-        slot_size = 66
-        spacing = 10
-        paper_rect = pygame.Rect(panel_rect.x + 12, panel_rect.y + 112, 240, panel_height - 130)
-        pygame.draw.rect(screen, (28, 32, 42), paper_rect, border_radius=8)
-        pygame.draw.rect(screen, (80, 96, 116), paper_rect, 1, border_radius=8)
-        silhouette = self.font.render("Paper Doll", True, (120, 130, 145))
-        screen.blit(silhouette, (paper_rect.centerx - silhouette.get_width() // 2, paper_rect.y + 8))
+        slot_size = 72
+        spacing = 12
+        gear_rect = pygame.Rect(panel_rect.x + padding, info_rect.bottom + section_gap, 262, panel_height - info_rect.height - section_gap * 2 - 88)
+        pygame.draw.rect(screen, (24, 28, 36), gear_rect, border_radius=10)
+        pygame.draw.rect(screen, (80, 96, 116), gear_rect, 1, border_radius=10)
+        gear_title = self.font.render("Gear Slots", True, (200, 210, 224))
+        screen.blit(gear_title, (gear_rect.x + 12, gear_rect.y + 10))
+
+        paper_rect = pygame.Rect(gear_rect.x + 10, gear_rect.y + 34, gear_rect.width - 20, gear_rect.height - 44)
+        pygame.draw.rect(screen, (30, 34, 44), paper_rect, border_radius=10)
+        pygame.draw.rect(screen, (90, 106, 128), paper_rect, 1, border_radius=10)
+        silhouette = self.font.render("Paper Doll", True, (130, 140, 152))
+        screen.blit(silhouette, (paper_rect.centerx - silhouette.get_width() // 2, paper_rect.y + 10))
 
         center_x = paper_rect.centerx - slot_size // 2
         equip_positions = {
-            "helm": (center_x, paper_rect.y + 32),
-            "armor": (center_x, paper_rect.y + 110),
-            "back": (center_x, paper_rect.y + 188),
-            "mainhand": (paper_rect.x + 20, paper_rect.y + 110),
-            "offhand": (paper_rect.right - slot_size - 20, paper_rect.y + 110),
+            "helm": (center_x, paper_rect.y + 36),
+            "armor": (center_x, paper_rect.y + 126),
+            "back": (center_x, paper_rect.y + 216),
+            "mainhand": (paper_rect.x + 18, paper_rect.y + 126),
+            "offhand": (paper_rect.right - slot_size - 18, paper_rect.y + 126),
         }
 
         dragging_item = self.dragging_slot.item if self.dragging_slot else None
@@ -897,53 +942,82 @@ class PygameMMO:
             highlight = rect.collidepoint(self.mouse_pos)
             pygame.draw.rect(screen, (36, 42, 54), rect, border_radius=8)
             pygame.draw.rect(screen, (110, 124, 140), rect, 1, border_radius=8)
-            label = self.font.render(slot_name.title(), True, (130, 140, 150))
-            screen.blit(label, (rect.centerx - label.get_width() // 2, rect.bottom + 2))
+            label = self.font.render(slot_name.title(), True, (140, 152, 165))
+            screen.blit(label, (rect.centerx - label.get_width() // 2, rect.bottom + 4))
             self.equip_slots.append(ItemSlot(rect, item, slot_name, "equip"))
             if item and item is not dragging_item:
                 self._draw_item_icon(screen, item, rect, highlight=highlight)
             elif not item:
-                empty = self.font.render("Empty", True, (90, 100, 115))
+                empty = self.font.render("Empty", True, (98, 108, 122))
                 screen.blit(empty, (rect.centerx - empty.get_width() // 2, rect.centery - 10))
 
-        pack_origin_x = paper_rect.right + 18
-        pack_origin_y = panel_rect.y + 110
-        cols = 5
-        rows = max(3, (len(combatant.inventory) + cols - 1) // cols)
-        capacity_note = self.font.render(
-            f"Pack {len(combatant.inventory)}/{combatant.capacity()} (Shift to compare)", True, (190, 200, 210)
+        pack_rect = pygame.Rect(
+            gear_rect.right + section_gap,
+            info_rect.bottom + section_gap,
+            panel_rect.right - padding - (gear_rect.right + section_gap),
+            gear_rect.height,
         )
-        screen.blit(capacity_note, (pack_origin_x, paper_rect.y - 22))
+        pygame.draw.rect(screen, (22, 26, 34), pack_rect, border_radius=10)
+        pygame.draw.rect(screen, (78, 96, 118), pack_rect, 1, border_radius=10)
+        pack_title = self.font.render("Pack Canvas", True, (200, 210, 224))
+        screen.blit(pack_title, (pack_rect.x + 12, pack_rect.y + 10))
+        capacity_note = self.font.render(
+            f"Pack {len([it for it in combatant.inventory if it not in combatant.equipped.values()])}/{combatant.capacity()} (Shift to compare)",
+            True,
+            (190, 200, 210),
+        )
+        screen.blit(capacity_note, (pack_rect.x + 12, pack_rect.y + 32))
 
-        for idx in range(rows * cols):
-            row = idx // cols
-            col = idx % cols
-            rect = pygame.Rect(
-                pack_origin_x + col * (slot_size + spacing),
-                pack_origin_y + row * (slot_size + spacing),
-                slot_size,
-                slot_size,
-            )
-            item = combatant.inventory[idx] if idx < len(combatant.inventory) else None
+        canvas_padding = 16
+        canvas_rect = pygame.Rect(
+            pack_rect.x + canvas_padding,
+            pack_rect.y + 52,
+            pack_rect.width - canvas_padding * 2,
+            pack_rect.height - canvas_padding * 2 - 28,
+        )
+        pygame.draw.rect(screen, (26, 30, 38), canvas_rect, border_radius=10)
+        pygame.draw.rect(screen, (70, 86, 104), canvas_rect, 1, border_radius=10)
+        self.pack_canvas_slot = ItemSlot(canvas_rect, None, None, "pack_canvas")
+
+        pack_items = [item for item in combatant.inventory if item not in combatant.equipped.values()]
+        cols = max(1, canvas_rect.width // (slot_size + spacing))
+        for idx, item in enumerate(pack_items):
+            pos = self.inventory_positions.get(id(item))
+            if not pos:
+                row = idx // cols
+                col = idx % cols
+                pos = (
+                    canvas_rect.x + canvas_padding + col * (slot_size + spacing),
+                    canvas_rect.y + canvas_padding + row * (slot_size + spacing),
+                )
+                self._place_item_in_pack(item, pos, slot_size, 4)
+            x, y = self.inventory_positions.get(id(item), pos)
+            rect = pygame.Rect(x, y, slot_size, slot_size)
+            rect.x = max(canvas_rect.x + 6, min(canvas_rect.right - slot_size - 6, rect.x))
+            rect.y = max(canvas_rect.y + 6, min(canvas_rect.bottom - slot_size - 6, rect.y))
             highlight = rect.collidepoint(self.mouse_pos)
-            pygame.draw.rect(screen, (32, 36, 44), rect, border_radius=6)
-            pygame.draw.rect(screen, (70, 78, 92), rect, 1, border_radius=6)
+            pygame.draw.rect(screen, (32, 36, 44), rect, border_radius=8)
+            pygame.draw.rect(screen, (70, 78, 92), rect, 1, border_radius=8)
             slot = ItemSlot(rect, item, None, "pack")
             self.pack_slots.append(slot)
             if item and item is not dragging_item:
                 self._draw_item_icon(screen, item, rect, highlight=highlight)
 
-        sell_rect = pygame.Rect(pack_origin_x, panel_rect.bottom - 68, 140, 52)
-        drop_rect = pygame.Rect(sell_rect.right + 12, panel_rect.bottom - 68, 140, 52)
+        actions_rect = pygame.Rect(panel_rect.x + padding, panel_rect.bottom - 74, panel_rect.width - padding * 2, 58)
+        pygame.draw.rect(screen, (30, 36, 46), actions_rect, border_radius=10)
+        pygame.draw.rect(screen, (110, 130, 150), actions_rect, 1, border_radius=10)
+
+        sell_rect = pygame.Rect(actions_rect.x + 14, actions_rect.y + 8, 160, 42)
+        drop_rect = pygame.Rect(sell_rect.right + 18, actions_rect.y + 8, 160, 42)
         action_style = pygame.Color(64, 78, 92)
         pygame.draw.rect(screen, action_style, sell_rect, border_radius=8)
         pygame.draw.rect(screen, (150, 180, 205), sell_rect, 2, border_radius=8)
         sell_label = self.font.render("Sell to Camp", True, (215, 225, 235))
-        screen.blit(sell_label, (sell_rect.x + 12, sell_rect.y + 16))
+        screen.blit(sell_label, (sell_rect.x + 14, sell_rect.y + 12))
         pygame.draw.rect(screen, action_style, drop_rect, border_radius=8)
         pygame.draw.rect(screen, (200, 150, 150), drop_rect, 2, border_radius=8)
         drop_label = self.font.render("Drop on Ground", True, (235, 225, 225))
-        screen.blit(drop_label, (drop_rect.x + 8, drop_rect.y + 16))
+        screen.blit(drop_label, (drop_rect.x + 12, drop_rect.y + 12))
         self.action_slots.append(ItemSlot(sell_rect, None, None, "sell"))
         self.action_slots.append(ItemSlot(drop_rect, None, None, "drop"))
 
