@@ -2,23 +2,63 @@
   description: A courageous explorer ready for anything.
   symbol: "@"
   color: yellow
+  hair: windswept auburn
+  eyes: hazel
+  outfit: layered tunic
+  accent: brass buckles
 - name: ghost
   description: An eerie shape that flickers in the dark.
   symbol: "G"
   color: cyan
+  hair: none
+  eyes: pale glow
+  outfit: drifting robes
+  accent: frosted trim
 - name: hunter
   description: Leather-clad ranger with a bright scarf.
   symbol: "H"
   color: green
+  hair: braided chestnut
+  eyes: amber
+  outfit: forest leathers
+  accent: emerald scarf
 - name: guardian
   description: Towering shieldbearer with oak plating.
   symbol: "Q"
   color: orange
+  hair: cropped black
+  eyes: steel blue
+  outfit: plated mail
+  accent: oak inlays
 - name: wolf
   description: Grey-furred predator with sharp eyes.
   symbol: "w"
   color: lightgrey
+  hair: coarse grey
+  eyes: yellow
+  outfit: shaggy coat
+  accent: white muzzle
 - name: alpha_wolf
   description: Battle-scarred alpha with darker coat.
   symbol: "W"
   color: darkgrey
+  hair: rugged charcoal
+  eyes: amber
+  outfit: thick hide
+  accent: scarred flank
+- name: hero_daybreak
+  description: Adventurer with sunlit hair and traveling cloak.
+  symbol: "@"
+  color: gold
+  hair: sun-bleached blond
+  eyes: sky blue
+  outfit: light cloak
+  accent: white trim
+- name: hero_moonlit
+  description: Quiet scout with dusk-toned attire and teal eyes.
+  symbol: "@"
+  color: teal
+  hair: midnight black
+  eyes: teal
+  outfit: dusk leathers
+  accent: silver clasp

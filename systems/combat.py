@@ -27,7 +27,8 @@ class Combatant:
 
     @property
     def experience_to_level(self) -> int:
-        return 10 + (self.level - 1) * 5
+        # Exponential growth to slow rapid early leveling while keeping later goals attainable
+        return int(25 * (1.5 ** (self.level - 1)))
 
 
 class CombatSystem:
@@ -92,7 +93,7 @@ class CombatSystem:
             character=name,
             amount=amount,
             experience=combatant.experience,
-            level=combatant.level,
+            character_level=combatant.level,
             leveled_up=leveled_up,
         )
         self.bus.publish(

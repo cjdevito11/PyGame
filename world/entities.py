@@ -9,10 +9,23 @@ class Appearance:
     description: str
     symbol: str
     color: str
+    hair: str
+    eyes: str
+    outfit: str
+    accent: str
 
     @classmethod
     def from_definition(cls, name: str, data: Dict) -> "Appearance":
-        return cls(name=name, description=data["description"], symbol=data["symbol"], color=data["color"])
+        return cls(
+            name=name,
+            description=data["description"],
+            symbol=data["symbol"],
+            color=data["color"],
+            hair=data.get("hair", "short"),
+            eyes=data.get("eyes", "brown"),
+            outfit=data.get("outfit", "travel gear"),
+            accent=data.get("accent", "leather"),
+        )
 
 
 @dataclass
@@ -51,6 +64,7 @@ class CharacterProfile:
     name: str
     class_name: str
     appearance: str
+    appearance_options: list[str]
     items: list[str]
     gold: int
     level: int
@@ -63,6 +77,9 @@ class CharacterProfile:
             name=name,
             class_name=data["class_name"],
             appearance=data["appearance"],
+            appearance_options=list(
+                data.get("appearance_options") or [data.get("appearance")]
+            ),
             items=list(data.get("items", [])),
             gold=int(data.get("gold", 0)),
             level=int(data.get("level", 1)),

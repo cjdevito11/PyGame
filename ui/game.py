@@ -56,6 +56,10 @@ class PygameMMO:
             for name, data in context.bundle.characters.definitions().items()
             if data.get("role", "hero") == "hero"
         }
+        self.appearance_palettes: Dict[str, list[str]] = {
+            name: list(data.get("appearance_options") or [data.get("appearance")])
+            for name, data in self.playable_definitions.items()
+        }
         self.enemy_names = [
             name
             for name, data in context.bundle.characters.definitions().items()
@@ -64,6 +68,9 @@ class PygameMMO:
         self.player_name = player_name or next(iter(self.playable_definitions))
         self.state = "playing" if player_name else "menu"
         self.selection_index = 0
+        self.selected_appearances: Dict[str, str] = {
+            name: appearances[0] for name, appearances in self.appearance_palettes.items()
+        }
         self.actors: Dict[str, Actor] = {}
         self.running = False
         self.font: pygame.font.Font | None = None
@@ -86,7 +93,7 @@ class PygameMMO:
         for index, name in enumerate(participants):
             if name not in self.context.combat.characters:
                 continue
-            appearance_name = definitions[name]["appearance"]
+            appearance_name = self.selected_appearances.get(name, definitions[name]["appearance"])
             appearance = appearances.create(appearance_name)
             rect = pygame.Rect(start_positions[index % len(start_positions)], (54, 54))
             actors[name] = Actor(name=name, color=pygame.Color(appearance.color), rect=rect)
@@ -137,8 +144,24 @@ class PygameMMO:
             label = self.font.render(f"{name} — {data['class_name']} ({data['description']})", True, color)
             screen.blit(label, (120, 140 + idx * 48))
 
+        selected_name, selected_data = options[self.selection_index]
+        palette = self.appearance_palettes.get(selected_name, [selected_data.get("appearance")])
+        current_choice = self.selected_appearances.get(selected_name, palette[0])
+        appearance = self.context.bundle.appearances.create(current_choice)
+
+        detail_lines = [
+            f"Appearance: {appearance.name}",
+            f"Hair: {appearance.hair} | Eyes: {appearance.eyes}",
+            f"Outfit: {appearance.outfit} | Accent: {appearance.accent}",
+        ]
+        for i, line in enumerate(detail_lines):
+            detail = self.font.render(line, True, (214, 234, 248))
+            screen.blit(detail, (120, 220 + i * 26))
+
         prompt = self.font.render("Use ↑/↓ to highlight, Enter to begin your quest.", True, (180, 180, 180))
         screen.blit(prompt, (SCREEN_SIZE[0] // 2 - prompt.get_width() // 2, 360))
+        prompt2 = self.font.render("Use ←/→ to change appearance palette.", True, (160, 160, 160))
+        screen.blit(prompt2, (SCREEN_SIZE[0] // 2 - prompt2.get_width() // 2, 390))
         pygame.display.flip()
 
     def _render_playing(self, screen: pygame.Surface) -> None:
@@ -196,6 +219,17 @@ class PygameMMO:
 
         pygame.display.flip()
 
+    def _nudge_appearance(self, delta: int) -> None:
+        options = list(self.playable_definitions)
+        if not options:
+            return
+        hero = options[self.selection_index % len(options)]
+        palette = self.appearance_palettes.get(hero, [])
+        if not palette:
+            return
+        current_index = palette.index(self.selected_appearances.get(hero, palette[0]))
+        self.selected_appearances[hero] = palette[(current_index + delta) % len(palette)]
+
     def _handle_defeat(self) -> None:
         enemies_alive = any(
             combatant.hit_points > 0 and name != self.player_name
@@ -252,6 +286,10 @@ class PygameMMO:
                         self.selection_index = (self.selection_index + 1) % len(self.playable_definitions)
                     if event.key in (pygame.K_UP, pygame.K_w):
                         self.selection_index = (self.selection_index - 1) % len(self.playable_definitions)
+                    if event.key in (pygame.K_LEFT, pygame.K_a):
+                        self._nudge_appearance(-1)
+                    if event.key in (pygame.K_RIGHT, pygame.K_d):
+                        self._nudge_appearance(1)
                     if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                         self._start_adventure()
                 if self.state == "playing" and event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
