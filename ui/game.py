@@ -136,17 +136,24 @@ class PygameMMO:
         self.actors: Dict[str, Actor] = self._spawn_start_area()
         self.tutorial = TutorialManager()
         self.show_inventory = False
+        self.show_menu_panel = False
+        self.show_skills_panel = False
+        self.show_quests_panel = False
+        self.show_help_overlay = False
         self.loot_banner: str | None = None
         self.loot_banner_timer: float = 0.0
         self.mouse_pos: Tuple[int, int] = (0, 0)
         self.pack_slots: list[ItemSlot] = []
         self.equip_slots: list[ItemSlot] = []
         self.action_slots: list[ItemSlot] = []
+        self.toolbar_buttons: list[tuple[str, pygame.Rect]] = []
+        self.quest_panel_tab: pygame.Rect | None = None
         self.dragging_slot: ItemSlot | None = None
         self.drag_offset: Tuple[int, int] = (0, 0)
         self.hovered_slot: ItemSlot | None = None
         self.zone_boundary_color = pygame.Color(90, 130, 190)
         self.obstacle_color = pygame.Color(65, 75, 95)
+        self.interaction_hint: str | None = None
         self.bus.subscribe("quest.completed", self._on_quest_completed)
         self.bus.subscribe("quest.turned_in", self._on_quest_turned_in)
         self.bus.subscribe("quest.unlocked", self._on_quest_unlocked)
@@ -162,6 +169,14 @@ class PygameMMO:
         if isinstance(size, tuple) and len(size) == 2:
             self.screen_size = (int(size[0]), int(size[1]))
         self.background = settings.get("background", BACKGROUND)
+
+    def _detect_display_size(self) -> Tuple[int, int]:
+        """Return the current monitor resolution for a fullscreen canvas."""
+
+        info = pygame.display.Info()
+        width = max(int(info.current_w), SCREEN_SIZE[0])
+        height = max(int(info.current_h), SCREEN_SIZE[1])
+        return (width, height)
 
     def _spawn_start_area(self) -> Dict[str, Actor]:
         definitions = self.context.bundle.characters.definitions()
@@ -1013,42 +1028,7 @@ class PygameMMO:
         )
         pygame.draw.polygon(screen, color, [arrow_tip, arrow_left, arrow_right])
 
-    def _render(self, screen: pygame.Surface) -> None:
-        screen.fill(self.background)
-        assert self.font is not None
-
-        zone = self.context.zones.active_zone
-        if zone:
-            self._render_zone(screen, zone)
-
-        for name, actor in self.actors.items():
-            pygame.draw.rect(screen, actor.color, actor.rect, border_radius=6)
-            combatant = self.context.combat.characters.get(name)
-            label = f"{name}"
-            if combatant:
-                label = f"{name} — HP: {combatant.hit_points}"
-            hp_text = self.font.render(label, True, (236, 240, 241))
-            screen.blit(hp_text, (actor.rect.x - 8, actor.rect.y - 28))
-
-        self._render_objective_indicator(screen)
-        self._render_loot_banner(screen)
-
-        margin = 16
-        line_height = 22
-        section_spacing = 10
-
-        quest = self._active_quest()
-        status = quest.status if quest else "none"
-        y_cursor = margin
-
-        if self.context.zones.active_zone:
-            zone = self.context.zones.active_zone
-            zone_text = self.font.render(
-                f"Zone: {zone.name} (danger: {zone.danger_level})", True, (170, 170, 170)
-            )
-            screen.blit(zone_text, (margin, y_cursor))
-            y_cursor += line_height + section_spacing
-
+    def _collect_prompts(self) -> list[str]:
         prompts: list[str] = []
         if self.zone_prompt:
             prompts.append(self.zone_prompt)
@@ -1058,35 +1038,260 @@ class PygameMMO:
             prompts.extend(tutorial_prompts)
         else:
             prompts.append("Press H to re-open control hints.")
+
         prompts.append("Press I to toggle your inventory. Drag items to equip, sell, or drop.")
         prompts.append("Press L to toggle the objective indicator.")
         prompts.append("Click monsters to attack when you're in range.")
-
         prompts.extend(self._quest_prompts())
+        return prompts
 
-        for message in prompts:
-            prompt = self.font.render(message, True, (200, 200, 200))
-            screen.blit(prompt, (margin, y_cursor))
+    def _render_zone_badge(self, screen: pygame.Surface, margin: int) -> None:
+        if not self.context.zones.active_zone or not self.font:
+            return
+
+        zone = self.context.zones.active_zone
+        label = f"{zone.name} — danger {zone.danger_level}"
+        text = self.font.render(label, True, (200, 205, 215))
+        padding = 8
+        rect = pygame.Rect(margin, margin, text.get_width() + padding * 2, text.get_height() + padding * 2)
+        pygame.draw.rect(screen, (26, 30, 38), rect, border_radius=8)
+        pygame.draw.rect(screen, (90, 110, 130), rect, 1, border_radius=8)
+        screen.blit(text, (rect.x + padding, rect.y + padding))
+
+    def _render_interaction_hint(self, screen: pygame.Surface, *, margin: int, bar_height: int) -> None:
+        if not self.interaction_hint or not self.font:
+            return
+
+        bubble = self.font.render(self.interaction_hint, True, (225, 230, 240))
+        padding = 10
+        rect = pygame.Rect(
+            margin,
+            self.screen_size[1] - bar_height - bubble.get_height() - padding * 2 - margin,
+            bubble.get_width() + padding * 2,
+            bubble.get_height() + padding * 2,
+        )
+        pygame.draw.rect(screen, (24, 28, 36), rect, border_radius=10)
+        pygame.draw.rect(screen, (110, 140, 165), rect, 1, border_radius=10)
+        screen.blit(bubble, (rect.x + padding, rect.y + padding))
+
+    def _render_help_overlay(self, screen: pygame.Surface) -> None:
+        if not self.show_help_overlay or not self.font:
+            return
+
+        prompts = self._collect_prompts()
+        if not prompts:
+            return
+
+        padding = 12
+        line_height = 22
+        max_width = max(self.font.size(line)[0] for line in prompts)
+        width = min(self.screen_size[0] - 40, max_width + padding * 2)
+        height = line_height * len(prompts) + padding * 2
+        rect = pygame.Rect(20, 20, width, height)
+        pygame.draw.rect(screen, (20, 24, 30), rect, border_radius=10)
+        pygame.draw.rect(screen, (120, 140, 165), rect, 1, border_radius=10)
+        y_cursor = rect.y + padding
+        for line in prompts:
+            surf = self.font.render(line, True, (210, 215, 222))
+            screen.blit(surf, (rect.x + padding, y_cursor))
             y_cursor += line_height
 
-        if prompts:
-            y_cursor += section_spacing
+    def _wrap_text(self, text: str, max_width: int, *, bullet_prefix: str = "") -> list[str]:
+        assert self.font is not None
+
+        if not text:
+            return []
+
+        words = text.split()
+        if not words:
+            return []
+
+        lines: list[str] = []
+        indent = " " * len(bullet_prefix)
+        current = f"{bullet_prefix}{words[0]}" if bullet_prefix else words[0]
+
+        for word in words[1:]:
+            candidate = f"{current} {word}"
+            if self.font.size(candidate)[0] <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = f"{indent}{word}" if indent else word
+
+        lines.append(current)
+        return lines
+
+    def _render_quest_panel(self, screen: pygame.Surface, bar_height: int) -> None:
+        assert self.font is not None
+        margin = 12
+        panel_width = 280
+        available_height = self.screen_size[1] - bar_height - margin * 2
+
+        if not self.show_quests_panel:
+            tab_height = 120
+            tab_y = (self.screen_size[1] - bar_height - tab_height) // 2
+            self.quest_panel_tab = pygame.Rect(self.screen_size[0] - margin - 18, tab_y, 18, tab_height)
+            pygame.draw.rect(screen, (34, 38, 48), self.quest_panel_tab, border_radius=9)
+            pygame.draw.rect(screen, (110, 126, 146), self.quest_panel_tab, 1, border_radius=9)
+            title = self.font.render("Quests", True, (180, 190, 200))
+            rotated = pygame.transform.rotate(title, 90)
+            screen.blit(rotated, (self.quest_panel_tab.x - 6, self.quest_panel_tab.y + tab_height // 2 - rotated.get_height() // 2))
+            return
+        self.quest_panel_tab = None
+
+        panel_rect = pygame.Rect(
+            self.screen_size[0] - panel_width - margin,
+            margin,
+            panel_width,
+            available_height,
+        )
+        pygame.draw.rect(screen, (26, 30, 38), panel_rect, border_radius=10)
+        pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=10)
+        header = self.font.render("Quest Log", True, (215, 225, 235))
+        screen.blit(header, (panel_rect.x + 12, panel_rect.y + 10))
+
+        entries = self.quest_log[-14:]
+        if not entries:
+            empty = self.font.render("No updates yet.", True, (170, 180, 190))
+            screen.blit(empty, (panel_rect.x + 12, panel_rect.y + 38))
+            return
+
+        y_cursor = panel_rect.y + 36
+        line_spacing = 4
+        max_text_width = panel_width - 24
+        lines: list[str] = []
+        for entry in reversed(entries):
+            lines.extend(self._wrap_text(entry, max_width=max_text_width, bullet_prefix="• "))
+
+        for line in lines:
+            text = self.font.render(line, True, (205, 210, 215))
+            if y_cursor + text.get_height() > panel_rect.y + panel_rect.height - 8:
+                break
+            screen.blit(text, (panel_rect.x + 12, y_cursor))
+            y_cursor += text.get_height() + line_spacing
+
+    def _render_skills_panel(self, screen: pygame.Surface, bar_height: int) -> None:
+        if not self.show_skills_panel or not self.font:
+            return
+
+        combatant = self._player_combatant()
+        if not combatant:
+            return
+
+        margin = 12
+        panel_width = 260
+        panel_height = 200
+        panel_rect = pygame.Rect(
+            margin,
+            self.screen_size[1] - bar_height - panel_height - margin,
+            panel_width,
+            panel_height,
+        )
+        pygame.draw.rect(screen, (26, 30, 38), panel_rect, border_radius=10)
+        pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=10)
+        header = self.font.render("Skills", True, (215, 225, 235))
+        screen.blit(header, (panel_rect.x + 12, panel_rect.y + 10))
+
+        abilities = []
+        for name, definition in self.context.bundle.abilities.definitions().items():
+            if definition.get("class_name") == combatant.class_name:
+                abilities.append(name)
+
+        y_cursor = panel_rect.y + 34
+        line_height = 20
+        if abilities:
+            for ability in abilities[:6]:
+                rank = combatant.skills.get(ability, 0)
+                label = ability.replace("_", " ").title()
+                text = self.font.render(f"{label} — Rank {rank}", True, (195, 205, 215))
+                screen.blit(text, (panel_rect.x + 12, y_cursor))
+                y_cursor += line_height
+        else:
+            note = self.font.render("No class abilities yet.", True, (170, 180, 190))
+            screen.blit(note, (panel_rect.x + 12, y_cursor))
+
+    def _render_toolbar(self, screen: pygame.Surface, bar_height: int) -> None:
+        assert self.font is not None
+        margin = 10
+        bar_rect = pygame.Rect(margin, self.screen_size[1] - bar_height - margin, self.screen_size[0] - margin * 2, bar_height)
+        pygame.draw.rect(screen, (18, 22, 28), bar_rect, border_radius=12)
+        pygame.draw.rect(screen, (70, 86, 104), bar_rect, 1, border_radius=12)
+
+        button_size = 54
+        spacing = 10
+        buttons = [
+            ("menu", "≡", self.show_menu_panel or self.show_help_overlay),
+            ("inventory", "I", self.show_inventory),
+            ("skills", "S", self.show_skills_panel),
+            ("quests", "Q", self.show_quests_panel),
+        ]
+
+        total_width = len(buttons) * button_size + (len(buttons) - 1) * spacing
+        start_x = bar_rect.centerx - total_width // 2
+        y = bar_rect.y + (bar_height - button_size) // 2
+        self.toolbar_buttons = []
+        for idx, (name, label, active) in enumerate(buttons):
+            rect = pygame.Rect(start_x + idx * (button_size + spacing), y, button_size, button_size)
+            self.toolbar_buttons.append((name, rect))
+            base_color = (38, 44, 56)
+            accent = (120, 180, 200) if active else (90, 110, 130)
+            pygame.draw.rect(screen, base_color, rect, border_radius=10)
+            pygame.draw.rect(screen, accent, rect, 2, border_radius=10)
+            text = self.font.render(label, True, accent)
+            screen.blit(text, (rect.centerx - text.get_width() // 2, rect.centery - text.get_height() // 2))
+
+    def _handle_toolbar_click(self, pos: Tuple[int, int]) -> bool:
+        for name, rect in self.toolbar_buttons:
+            if rect.collidepoint(pos):
+                if name == "menu":
+                    self.show_menu_panel = not self.show_menu_panel
+                    self.show_help_overlay = self.show_menu_panel
+                elif name == "inventory":
+                    self.show_inventory = not self.show_inventory
+                elif name == "skills":
+                    self.show_skills_panel = not self.show_skills_panel
+                elif name == "quests":
+                    self.show_quests_panel = not self.show_quests_panel
+                return True
+
+        if self.quest_panel_tab and self.quest_panel_tab.collidepoint(pos):
+            self.show_quests_panel = True
+            return True
+        return False
+
+    def _render(self, screen: pygame.Surface) -> None:
+        screen.fill(self.background)
+        assert self.font is not None
+        self.interaction_hint = None
+
+        zone = self.context.zones.active_zone
+        if zone:
+            self._render_zone(screen, zone)
+
+        for name, actor in self.actors.items():
+            pygame.draw.rect(screen, actor.color, actor.rect, border_radius=6)
+            # Keep the playfield free of floating text; lean on HUD panels instead.
+
+        self._render_objective_indicator(screen)
+        self._render_loot_banner(screen)
+
+        margin = 12
+        bar_height = 68
+        quest = self._active_quest()
+        status = quest.status if quest else "none"
+
+        self._render_zone_badge(screen, margin)
 
         if self._player_near(QUEST_GIVER_NAME):
-            interaction_text = "Press E to talk" if status != "turned_in" else "Enjoy the fire."
-            bubble = self.font.render(interaction_text, True, (240, 240, 240))
-            guide = self.actors[QUEST_GIVER_NAME]
-            screen.blit(bubble, (guide.rect.x - 8, guide.rect.y - 28))
+            self.interaction_hint = "Press E to talk" if status != "turned_in" else "Enjoy the fire."
 
-        log_title_y = self.screen_size[1] - 120
-        log_title = self.font.render("Quest Log", True, (170, 186, 193))
-        screen.blit(log_title, (margin, log_title_y))
-        for idx, entry in enumerate(self.quest_log[-4:]):
-            log_line = self.font.render(f"• {entry}", True, (210, 210, 210))
-            screen.blit(log_line, (margin, log_title_y + 24 + idx * 20))
-
+        self._render_quest_panel(screen, bar_height)
+        self._render_skills_panel(screen, bar_height)
         self._render_inventory_panel(screen)
         self._render_combat_overlay(screen)
+        self._render_help_overlay(screen)
+        self._render_interaction_hint(screen, margin=margin, bar_height=bar_height)
+        self._render_toolbar(screen, bar_height)
 
         pygame.display.flip()
 
@@ -1190,6 +1395,7 @@ class PygameMMO:
         pygame.init()
         self.font = pygame.font.SysFont("arial", 18)
         try:
+            self.screen_size = self._detect_display_size()
             screen = pygame.display.set_mode(self.screen_size, pygame.FULLSCREEN)
         except Exception as exc:  # pragma: no cover - defensive video fallback
             log_with_fields(logger, logging.WARNING, "Fullscreen mode failed, falling back", error=str(exc))
@@ -1210,6 +1416,8 @@ class PygameMMO:
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     self.mouse_pos = event.pos
                     if event.button == 1:
+                        if self._handle_toolbar_click(event.pos):
+                            continue
                         if self.show_inventory and self._start_drag(event.pos):
                             continue
                         self._handle_attack_click(event.pos)
@@ -1225,6 +1433,7 @@ class PygameMMO:
                             self.tutorial.record_interaction()
                     if event.key == pygame.K_h:
                         self.tutorial.request_help()
+                        self.show_help_overlay = not self.show_help_overlay
                     if event.key == pygame.K_i:
                         self.show_inventory = not self.show_inventory
                     if event.key == pygame.K_l:
