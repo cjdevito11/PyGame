@@ -94,7 +94,7 @@ if importlib.util.find_spec("pygame") is None:
 
 
 from ui.context import build_context
-from ui.game import DEFAULT_ENEMY_NAME, PLAYER_NAME, PygameMMO
+from ui.game import DEFAULT_ENEMY_NAME, PLAYER_NAME, PygameMMO, QUEST_GIVER_NAME
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -105,6 +105,11 @@ class GameSetupTest(unittest.TestCase):
         game = PygameMMO(context)
 
         self.assertIn(PLAYER_NAME, game.actors)
+        self.assertIn(QUEST_GIVER_NAME, game.actors)
+        self.assertNotIn(DEFAULT_ENEMY_NAME, game.actors)
+
+        game.bus.publish("quest.accepted", quest="defeat-shade", owner=PLAYER_NAME)
+        game._maybe_spawn_target()
         self.assertIn(DEFAULT_ENEMY_NAME, game.actors)
 
         player_rect = game.actors[PLAYER_NAME].rect
@@ -116,6 +121,8 @@ class GameSetupTest(unittest.TestCase):
         game = PygameMMO(context)
 
         player = game.actors[PLAYER_NAME]
+        game.bus.publish("quest.accepted", quest="defeat-shade", owner=PLAYER_NAME)
+        game._maybe_spawn_target()
         target = game.actors[DEFAULT_ENEMY_NAME]
         player.rect.topleft = target.rect.topleft
 

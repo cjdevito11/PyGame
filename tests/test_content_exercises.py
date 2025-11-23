@@ -65,14 +65,17 @@ class ExerciseTests(unittest.TestCase):
             )
 
         quest = quests.quests["talk-to-elder"]
+        bus.publish("quest.accepted", quest="talk-to-elder", owner="Aria")
 
-        # Wrong branch: quest should stay untouched.
+        # Wrong branch: quest should stay accepted.
         bus.publish("npc.choice", choice="leave")
-        self.assertEqual(quest.status, "new")
+        self.assertEqual(quest.status, "accepted")
 
-        # Helpful branch: completes and emits a reward event.
+        # Helpful branch: completes and then turns in for the reward event.
         bus.publish("npc.choice", choice="help-village")
         self.assertEqual(quest.status, "completed")
+        bus.publish("quest.turned_in", quest="talk-to-elder", owner="Aria")
+        self.assertEqual(quest.status, "turned_in")
 
 
 if __name__ == "__main__":
