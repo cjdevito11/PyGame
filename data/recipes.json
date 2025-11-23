@@ -1,0 +1,20 @@
+[
+  {
+    "name": "reinforced_blade",
+    "description": "Forge a sharper blade from bronze and leather.",
+    "profession": "blacksmithing",
+    "reagents": ["bronze_sword", "leather_scrap"],
+    "result": "reinforced_sword",
+    "skill_required": 5,
+    "teaches": ["grit_edge"]
+  },
+  {
+    "name": "ember_oil",
+    "description": "Distill an oil that adds fire damage on use.",
+    "profession": "enchanting",
+    "reagents": ["lantern", "ember_leaf"],
+    "result": "ember_coating",
+    "skill_required": 3,
+    "teaches": []
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "blacksmithing",
+    "description": "Forge weapons and armor with higher durability.",
+    "type": "crafting",
+    "perks": ["bonus_durability", "socket_unlock"]
+  },
+  {
+    "name": "enchanting",
+    "description": "Imbue gear with magical properties or reforges.",
+    "type": "crafting",
+    "perks": ["reroll_tertiary", "add_enchant"]
+  },
+  {
+    "name": "herbalism",
+    "description": "Harvest reagents for potions and buffs.",
+    "type": "gathering",
+    "perks": ["extra_reagents"]
+  }
+]

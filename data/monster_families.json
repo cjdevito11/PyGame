@@ -1,0 +1,16 @@
+[
+  {
+    "name": "human",
+    "description": "Baseline humanoids with little resistance.",
+    "resistances": {"shadow": 0, "arcane": 0},
+    "immunities": [],
+    "rarity_bias": {"uncommon": 1}
+  },
+  {
+    "name": "wraith",
+    "description": "Ethereal beings that shrug off shadow and ignore stuns.",
+    "resistances": {"shadow": 3},
+    "immunities": ["stun"],
+    "rarity_bias": {"rare": 2}
+  }
+]

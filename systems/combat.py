@@ -9,7 +9,7 @@ from typing import Dict, Iterable, List, Tuple
 from core.logging_config import get_logger, log_with_fields
 from core.registry import Registry
 from systems.event_bus import Event, EventBus
-from world.entities import CharacterClass, Item
+from world.entities import Ability, CharacterClass, Item, MonsterFamily
 
 
 @dataclass
@@ -17,11 +17,16 @@ class Combatant:
     name: str
     class_name: str
     hit_points: int
+    resource_pools: Dict[str, int] = field(default_factory=dict)
     inventory: List[Item] = field(default_factory=list)
     gold: int = 0
     equipped: Dict[str, Item] = field(default_factory=dict)
     base_capacity: int = 10
     buffs: list["Buff"] = field(default_factory=list)
+    gcd_remaining: int = 0
+    cooldowns: Dict[str, int] = field(default_factory=dict)
+    family: str | None = None
+    position: Tuple[int, int] = (0, 0)
 
     def is_alive(self) -> bool:
         return self.hit_points > 0
@@ -29,6 +34,9 @@ class Combatant:
     def capacity(self) -> int:
         bonus = sum(item.capacity_bonus for item in self.equipped.values())
         return self.base_capacity + bonus
+
+    def resource(self, resource_type: str) -> int:
+        return self.resource_pools.get(resource_type, 0)
 
 
 @dataclass
@@ -49,18 +57,30 @@ class CombatSystem:
         *,
         class_registry: Registry[CharacterClass],
         item_registry: Registry[Item],
+        ability_registry: Registry["Ability"] | None = None,
+        family_registry: Registry["MonsterFamily"] | None = None,
     ) -> None:
         self.bus = bus
         self.class_registry = class_registry
         self.item_registry = item_registry
+        self.ability_registry = ability_registry
+        self.family_registry = family_registry
         self.characters: Dict[str, Combatant] = {}
         self.logger = get_logger(__name__)
         self.bus.subscribe("combat.attack", self._handle_attack)
         self.bus.subscribe("loot.grant", self._handle_loot)
         self.bus.subscribe("inventory.consume", self._handle_consume)
+        self.bus.subscribe("ability.cast", self._handle_ability)
 
     def register_character(
-        self, name: str, class_name: str, inventory: Iterable[str], gold: int = 0, *, bag_capacity: int = 10
+        self,
+        name: str,
+        class_name: str,
+        inventory: Iterable[str],
+        gold: int = 0,
+        *,
+        bag_capacity: int = 10,
+        family: str | None = None,
     ) -> Combatant:
         if name in self.characters:
             return self.characters[name]
@@ -70,9 +90,11 @@ class CombatSystem:
             name=name,
             class_name=class_name,
             hit_points=char_class.hit_points,
+            resource_pools={char_class.resource_type: char_class.resource_max or char_class.mana},
             inventory=items,
             gold=gold,
             base_capacity=bag_capacity,
+            family=family,
         )
         for item in items:
             self._maybe_equip(combatant, item)
@@ -256,6 +278,16 @@ class CombatSystem:
         total_defense += buff.defense
         return total_defense
 
+    def _family_resistance(self, defender: Combatant, school: str) -> int:
+        if not self.family_registry or not defender.family:
+            return 0
+        family = self.family_registry.definitions().get(defender.family)
+        if not family:
+            return 0
+        if school in family.get("immunities", []):
+            return 999
+        return int(family.get("resistances", {}).get(school, 0))
+
     def _set_bonus(self, combatant: Combatant) -> Dict[str, int]:
         counts: Dict[str, int] = {}
         for item in combatant.equipped.values():
@@ -287,6 +319,21 @@ class CombatSystem:
                 buff.turns_remaining -= 1
                 remaining.append(buff)
         combatant.buffs = remaining
+
+    def _advance_turns(self, combatant: Combatant) -> None:
+        combatant.gcd_remaining = max(0, combatant.gcd_remaining - 1)
+        cooled: Dict[str, int] = {}
+        for ability, remaining in combatant.cooldowns.items():
+            if remaining > 1:
+                cooled[ability] = remaining - 1
+        combatant.cooldowns = cooled
+
+    def _spend_resource(self, combatant: Combatant, resource_type: str, cost: int) -> bool:
+        current = combatant.resource_pools.get(resource_type, 0)
+        if current < cost:
+            return False
+        combatant.resource_pools[resource_type] = current - cost
+        return True
 
     def _apply_durability_loss(self, combatant: Combatant, slots: Iterable[str], amount: int = 1) -> None:
         for slot in slots:
@@ -372,3 +419,56 @@ class CombatSystem:
                 )
             defender.inventory.clear()
         return result
+
+    def _handle_ability(self, event: Event) -> Dict[str, object]:
+        if not self.ability_registry:
+            raise RuntimeError("No ability registry configured")
+        attacker_name = event.payload["attacker"]
+        defender_name = event.payload.get("defender")
+        ability_name = event.payload["ability"]
+        attacker = self.characters[attacker_name]
+        ability = self.ability_registry.create(ability_name)
+
+        if attacker.class_name != ability.class_name:
+            raise PermissionError(f"{attacker.class_name} cannot use {ability.name}")
+        if attacker.gcd_remaining > 0:
+            raise RuntimeError("Global cooldown active")
+        if attacker.cooldowns.get(ability.name, 0) > 0:
+            raise RuntimeError("Ability on cooldown")
+        if not self._spend_resource(attacker, ability.resource_type, ability.cost):
+            raise RuntimeError("Insufficient resources")
+
+        damage = 0
+        healing = 0
+        defender = self.characters.get(defender_name) if defender_name else None
+        if defender:
+            defense = self._calculate_resilience(defender)
+            school_resist = self._family_resistance(defender, ability.school)
+            attack_power = self._attack_power(attacker, weapon_name=None, persist=True) + ability.power
+            damage = max(1, attack_power - defense - school_resist)
+            defender.hit_points -= damage
+        if ability.heal and defender:
+            defender.hit_points += ability.heal
+            healing = ability.heal
+
+        attacker.cooldowns[ability.name] = max(1, ability.cooldown_turns)
+        attacker.gcd_remaining = max(1, ability.gcd_turns)
+        self._apply_durability_loss(attacker, ["mainhand"], amount=1)
+        self._tick_buffs(attacker)
+        if defender:
+            self._tick_buffs(defender)
+        self._advance_turns(attacker)
+        if defender:
+            self._advance_turns(defender)
+
+        payload = {
+            "attacker": attacker_name,
+            "defender": defender_name,
+            "ability": ability.name,
+            "damage": damage,
+            "healing": healing,
+            "remaining_hp": defender.hit_points if defender else None,
+        }
+        log_with_fields(self.logger, logging.INFO, "Ability resolved", **payload)
+        self.bus.publish("combat.ability", **payload)
+        return payload

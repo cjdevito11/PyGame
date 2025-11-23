@@ -108,5 +108,55 @@
     "defense": 0,
     "speed": 0,
     "quest_item": true
+  },
+  {
+    "name": "leather_scrap",
+    "description": "Toughened hide used by crafters.",
+    "slot": "bag",
+    "power": 0,
+    "defense": 0,
+    "speed": 0,
+    "item_type": "material",
+    "rarity": "common",
+    "value": 1
+  },
+  {
+    "name": "ember_leaf",
+    "description": "A faintly warm leaf for potion-making.",
+    "slot": "bag",
+    "power": 0,
+    "defense": 0,
+    "speed": 0,
+    "item_type": "material",
+    "rarity": "uncommon",
+    "value": 2
+  },
+  {
+    "name": "reinforced_sword",
+    "description": "A reforged adventurer blade with sockets for gems.",
+    "slot": "mainhand",
+    "power": 5,
+    "defense": 0,
+    "speed": 1,
+    "max_durability": 50,
+    "sockets": 1,
+    "rarity": "rare",
+    "tertiary": "crit",
+    "value": 22,
+    "appearance_states": ["sharpened", "dented", "ruined"],
+    "loot_table": "elite"
+  },
+  {
+    "name": "ember_coating",
+    "description": "On-use oil that adds fire damage for a short time.",
+    "slot": "consumable",
+    "power": 2,
+    "defense": 0,
+    "speed": 0,
+    "item_type": "consumable",
+    "duration_turns": 3,
+    "rarity": "uncommon",
+    "on_use": "fireball",
+    "value": 6
   }
 ]

@@ -599,6 +599,30 @@ class PygameMMO:
         )
         self._reset_zone_population(next_zone, direction)
 
+    def _render_combat_overlay(self, screen: pygame.Surface) -> None:
+        combatant = self._player_combatant()
+        if not combatant or not self.font:
+            return
+        x = SCREEN_SIZE[0] - 340
+        y = SCREEN_SIZE[1] - 140
+        pygame.draw.rect(screen, (22, 26, 32), pygame.Rect(x - 10, y - 16, 330, 120), border_radius=8)
+        pygame.draw.rect(screen, (90, 110, 130), pygame.Rect(x - 10, y - 16, 330, 120), 1, border_radius=8)
+        resources = ", ".join(f"{k}: {v}" for k, v in combatant.resource_pools.items()) or "No resource"
+        res_text = self.font.render(f"Resources: {resources}", True, (210, 220, 235))
+        screen.blit(res_text, (x, y))
+        gcd_text = self.font.render(f"GCD: {combatant.gcd_remaining} turn(s)", True, (180, 190, 205))
+        screen.blit(gcd_text, (x, y + 18))
+        ability_defs = []
+        for name, definition in self.context.bundle.abilities.definitions().items():
+            if definition.get("class_name") == combatant.class_name:
+                ability_defs.append(name)
+        ability_label = self.font.render("Hotbar:", True, (210, 220, 235))
+        screen.blit(ability_label, (x, y + 40))
+        for idx, ability in enumerate(ability_defs[:5]):
+            cd = combatant.cooldowns.get(ability, 0)
+            entry = self.font.render(f"{idx+1}. {ability.replace('_', ' ')} (CD {cd})", True, (195, 200, 210))
+            screen.blit(entry, (x + 12, y + 60 + idx * 18))
+
     def _render(self, screen: pygame.Surface) -> None:
         screen.fill(BACKGROUND)
         assert self.font is not None
@@ -671,6 +695,7 @@ class PygameMMO:
             screen.blit(log_line, (margin, log_title_y + 24 + idx * 20))
 
         self._render_inventory_panel(screen)
+        self._render_combat_overlay(screen)
 
         pygame.display.flip()
 
