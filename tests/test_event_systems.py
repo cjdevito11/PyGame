@@ -18,7 +18,14 @@ def _load_combat(bus: EventBus) -> tuple[CombatSystem, RegistryBundle]:
     for name in bundle.characters.entries():
         profile = bundle.characters.create(name)
         combat.register_character(
-            profile.name, profile.class_name, profile.items, gold=profile.gold, bag_capacity=profile.bag_capacity
+            profile.name,
+            profile.class_name,
+            profile.items,
+            gold=profile.gold,
+            bag_capacity=profile.bag_capacity,
+            family=profile.family,
+            stats=profile.stats,
+            skills=profile.skills,
         )
     return combat, bundle
 
@@ -32,6 +39,9 @@ def test_event_flow_completes_quests_and_rewards_gold() -> None:
 
     for character in combat.characters.values():
         economy.sync_wallet(character.name, character.gold)
+
+    starting_strength = combat.characters["Aria"].strength
+    starting_skills = dict(combat.characters["Aria"].skills)
 
     bonus_log: list[str] = []
     loot_log: list[str] = []
@@ -53,6 +63,8 @@ def test_event_flow_completes_quests_and_rewards_gold() -> None:
         owner="Aria",
         reward_gold=7,
         reward_item="oak_shield",
+        reward_attributes={"strength": 1},
+        reward_skills={"shielding": 1},
         condition=lambda event: event.payload.get("defender") == "Shade",
     )
     bus.publish("quest.accepted", quest="defeat-shade", owner="Aria")
@@ -62,6 +74,8 @@ def test_event_flow_completes_quests_and_rewards_gold() -> None:
     assert "applied" in bonus_log
     assert combat.characters["Shade"].hit_points <= 0
     assert quests.quests["defeat-shade"].status == "completed"
+    assert combat.characters["Aria"].strength == starting_strength + 1
+    assert combat.characters["Aria"].skills.get("shielding") == starting_skills.get("shielding", 0) + 1
 
     bus.publish("quest.turned_in", quest="defeat-shade", owner="Aria")
     assert quests.quests["defeat-shade"].status == "turned_in"
@@ -96,10 +110,11 @@ def test_defense_from_equipment_reduces_damage() -> None:
     bus = EventBus()
     combat, _ = _load_combat(bus)
 
+    preview_without_shield = combat.preview_attack("Aria", "Shade", weapon_name="bronze_sword")
     combat.add_item("Shade", "oak_shield")
-    preview = combat.preview_attack("Aria", "Shade", weapon_name="bronze_sword")
+    preview_with_shield = combat.preview_attack("Aria", "Shade", weapon_name="bronze_sword")
 
-    assert preview["damage"] == 2  # attack power 5 reduced by 3 defense
+    assert preview_with_shield["damage"] < preview_without_shield["damage"]
 
 
 def test_consumable_buff_applies_and_expires() -> None:

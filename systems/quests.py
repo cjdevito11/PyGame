@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict
 
 from core.logging_config import get_logger, log_with_fields
@@ -18,11 +18,15 @@ class QuestRecord:
     owner: str | None = None
     reward_gold: int = 0
     reward_item: str | None = None
+    reward_items: list[str] = field(default_factory=list)
+    reward_attributes: Dict[str, int] = field(default_factory=dict)
+    reward_skills: Dict[str, int] = field(default_factory=dict)
     condition: Callable[[Event], bool] | None = None
     status: str = "available"
     target_monsters: Dict[str, int] | None = None
-    loot_queue: list[str] = None
-    progress: Dict[str, int] = None
+    loot_queue: list[str] = field(default_factory=list)
+    progress: Dict[str, int] = field(default_factory=dict)
+    rewards_granted: bool = False
 
 
 class QuestSystem:
@@ -45,10 +49,16 @@ class QuestSystem:
         owner: str | None = None,
         reward_gold: int = 0,
         reward_item: str | None = None,
+        reward_items: list[str] | None = None,
+        reward_attributes: Dict[str, int] | None = None,
+        reward_skills: Dict[str, int] | None = None,
         condition: Callable[[Event], bool] | None = None,
         target_monsters: Dict[str, int] | None = None,
         loot_queue: list[str] | None = None,
     ) -> None:
+        items = list(reward_items or [])
+        if reward_item:
+            items.append(reward_item)
         record = QuestRecord(
             identifier=identifier,
             description=description,
@@ -56,10 +66,12 @@ class QuestSystem:
             owner=owner,
             reward_gold=reward_gold,
             reward_item=reward_item,
+            reward_items=items,
+            reward_attributes=dict(reward_attributes or {}),
+            reward_skills=dict(reward_skills or {}),
             condition=condition,
             target_monsters=target_monsters or {},
             loot_queue=list(loot_queue or []),
-            progress={},
         )
         self.quests[identifier] = record
         self.bus.subscribe(trigger_event, lambda event: self._handle_trigger(record.identifier, event))
@@ -80,11 +92,17 @@ class QuestSystem:
             return quest
 
         quest.status = "completed"
-        self.bus.publish(
-            "quest.completed",
-            quest=quest.identifier,
-            owner=quest.owner,
-        )
+        completion_payload = {
+            "quest": quest.identifier,
+            "owner": quest.owner,
+            "reward_gold": quest.reward_gold,
+            "reward_item": quest.reward_item,
+            "reward_items": quest.reward_items,
+            "reward_attributes": quest.reward_attributes,
+            "reward_skills": quest.reward_skills,
+        }
+        self.bus.publish("quest.completed", **completion_payload)
+        quest.rewards_granted = True
         log_with_fields(
             self.logger,
             logging.INFO,
@@ -132,10 +150,12 @@ class QuestSystem:
         if quest.status != "completed":
             return quest
         quest.status = "turned_in"
-        if quest.reward_gold:
-            self.bus.publish("economy.reward", recipient=quest.owner, reward_gold=quest.reward_gold)
-        if quest.reward_item:
-            self.bus.publish("loot.grant", owner=quest.owner, item=quest.reward_item, reason="quest")
+        if not quest.rewards_granted:
+            if quest.reward_gold:
+                self.bus.publish("economy.reward", recipient=quest.owner, reward_gold=quest.reward_gold)
+            for item_name in quest.reward_items:
+                self.bus.publish("loot.grant", owner=quest.owner, item=item_name, reason="quest")
+            quest.rewards_granted = True
         log_with_fields(
             self.logger,
             logging.INFO,
@@ -156,6 +176,9 @@ class QuestSystem:
         quest = self.turn_in_quest(quest_id)
         if quest.status == "turned_in":
             event.payload["reward_gold"] = quest.reward_gold
+            event.payload["reward_items"] = quest.reward_items
+            event.payload["reward_attributes"] = quest.reward_attributes
+            event.payload["reward_skills"] = quest.reward_skills
         return quest
 
     def _on_defeat_event(self, event: Event) -> None:

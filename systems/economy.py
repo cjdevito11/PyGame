@@ -47,11 +47,45 @@ class EconomySystem:
     def _handle_reward(self, event: Event) -> Dict[str, int]:
         owner = event.payload.get("owner") or event.payload.get("recipient")
         reward = int(event.payload.get("reward_gold", event.payload.get("amount", 0)))
+        reward_items: list[str] = list(event.payload.get("reward_items", []))
+        reward_item = event.payload.get("reward_item")
+        reward_attributes: Dict[str, int] = dict(event.payload.get("reward_attributes", {}))
+        reward_skills: Dict[str, int] = dict(event.payload.get("reward_skills", {}))
+        if reward_item:
+            reward_items.append(reward_item)
+
         if not owner:
             return {"gold": 0}
-        self.wallets[owner] = self.wallets.get(owner, 0) + reward
-        log_with_fields(self.logger, logging.INFO, "Granted reward", owner=owner, gold=self.wallets[owner])
-        return {"gold": self.wallets[owner]}
+
+        if reward:
+            self.wallets[owner] = self.wallets.get(owner, 0) + reward
+            log_with_fields(self.logger, logging.INFO, "Granted reward", owner=owner, gold=self.wallets[owner])
+
+        for item_name in reward_items:
+            self.combat_system.add_item(owner, item_name, reason=event.name)
+
+        combatant = self.combat_system.characters.get(owner)
+        if combatant:
+            if reward_attributes:
+                combatant.strength += int(reward_attributes.get("strength", 0))
+                combatant.agility += int(reward_attributes.get("agility", 0))
+                combatant.mastery += int(reward_attributes.get("mastery", 0))
+            if reward_skills:
+                for skill, value in reward_skills.items():
+                    combatant.skills[skill] = combatant.skills.get(skill, 0) + int(value)
+            if reward_attributes or reward_skills:
+                log_with_fields(
+                    self.logger,
+                    logging.INFO,
+                    "Updated attributes from reward",
+                    owner=owner,
+                    strength=combatant.strength,
+                    agility=combatant.agility,
+                    mastery=combatant.mastery,
+                    skills=len(combatant.skills),
+                )
+
+        return {"gold": self.wallets.get(owner, 0), "items": reward_items}
 
     def _handle_purchase(self, event: Event) -> Dict[str, object]:
         buyer = event.payload["buyer"]

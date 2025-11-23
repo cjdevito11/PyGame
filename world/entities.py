@@ -191,6 +191,8 @@ class CharacterProfile:
     gold: int
     bag_capacity: int = 10
     family: str | None = None
+    stats: dict[str, int] = field(default_factory=dict)
+    skills: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def from_definition(cls, name: str, data: Dict) -> "CharacterProfile":
@@ -202,4 +204,6 @@ class CharacterProfile:
             gold=int(data.get("gold", 0)),
             bag_capacity=int(data.get("bag_capacity", 10)),
             family=data.get("family"),
+            stats=dict(data.get("stats", {})),
+            skills=dict(data.get("skills", {})),
         )

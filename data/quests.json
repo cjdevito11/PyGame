@@ -1,0 +1,16 @@
+[
+  {
+    "identifier": "defeat-shade",
+    "description": "Defeat Shade to earn pocket money and sharpen your training.",
+    "trigger_event": "combat.defeated",
+    "owner": "Aria",
+    "reward_gold": 4,
+    "reward_items": ["leather_armor"],
+    "reward_attributes": {"strength": 1, "agility": 1},
+    "reward_skills": {"blade_mastery": 1},
+    "condition_field": "defender",
+    "condition_value": "Shade",
+    "target_monsters": {"Shade": 1},
+    "loot_queue": ["quest_relic"]
+  }
+]
