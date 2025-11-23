@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from random import Random
-from typing import Dict, Tuple
+from typing import Callable, Dict, Tuple
 
 import pygame
 
@@ -139,6 +139,7 @@ class PygameMMO:
         self.show_menu_panel = False
         self.show_skills_panel = False
         self.show_quests_panel = False
+        self.show_stats_panel = False
         self.show_help_overlay = False
         self.loot_banner: str | None = None
         self.loot_banner_timer: float = 0.0
@@ -802,6 +803,40 @@ class PygameMMO:
     def _rarity_color(self, rarity: str | None) -> pygame.Color:
         return RARITY_COLORS.get(rarity, RARITY_COLORS[None])
 
+    def _item_scaled_stats(self, item: Item, *, scale: float | None = None) -> Tuple[int, int, int]:
+        if scale is None:
+            return self.context.combat._effective_item_stats(item)
+
+        factor = max(0.25, min(1.0, scale)) if item.max_durability else 1.0
+        return int(item.power * factor), int(item.defense * factor), int(item.speed * factor)
+
+    def _combat_projection(self, combatant: Combatant, scale_fn: Callable[[Item], Tuple[int, int, int]]) -> dict[str, int]:
+        set_bonus = self.context.combat._set_bonus(combatant)
+        buffs = self.context.combat._buff_totals(combatant)
+
+        base_power = 1 + combatant.strength
+        base_speed = combatant.agility // 2
+        base_defense = combatant.mastery + combatant.agility // 3 + combatant.strength // 4
+
+        gear_power = gear_speed = gear_defense = 0
+        for item in combatant.equipped.values():
+            power, defense, speed = scale_fn(item)
+            gear_power += power
+            gear_defense += defense
+            gear_speed += speed
+
+        attack_power = max(1, base_power + base_speed + gear_power + gear_speed + set_bonus["power"] + set_bonus["speed"] + buffs.power + buffs.speed)
+        total_defense = base_defense + gear_defense + set_bonus["defense"] + buffs.defense
+
+        return {
+            "attack_power": attack_power,
+            "defense": total_defense,
+            "gear_defense": gear_defense,
+            "gear_power": gear_power,
+            "gear_speed": gear_speed,
+            "base_defense": base_defense,
+        }
+
     def _item_primary_stats(self, item: Item) -> Tuple[int, int, int]:
         return item.power, item.defense, item.speed
 
@@ -1033,6 +1068,146 @@ class PygameMMO:
                 slot_size,
             )
             self._draw_item_icon(screen, dragging_item, drag_rect, highlight=True)
+
+    def _render_stats_panel(self, screen: pygame.Surface, bar_height: int) -> None:
+        if not self.show_stats_panel or not self.font:
+            return
+
+        combatant = self._player_combatant()
+        if not combatant:
+            return
+
+        try:
+            char_class = self.context.bundle.classes.create(combatant.class_name)
+            max_health = max(1, int(char_class.hit_points))
+            resource_type = char_class.resource_type or "mana"
+            max_resource = max(1, int(char_class.resource_max or char_class.mana or 1))
+        except Exception:
+            max_health = max(1, combatant.hit_points)
+            resource_type = next(iter(combatant.resource_pools), "mana")
+            max_resource = max(1, combatant.resource_pools.get(resource_type, 1))
+
+        panel_width = 540
+        panel_height = 480
+        margin = 16
+        padding = 16
+        section_gap = 14
+        panel_rect = pygame.Rect(margin, margin, panel_width, panel_height)
+        pygame.draw.rect(screen, (28, 32, 42), panel_rect, border_radius=12)
+        pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=12)
+
+        title = self.font.render("Character (C) — stats & gear", True, (225, 232, 238))
+        screen.blit(title, (panel_rect.x + padding, panel_rect.y + padding - 4))
+
+        current_snapshot = self._combat_projection(combatant, lambda item: self._item_scaled_stats(item))
+        min_snapshot = self._combat_projection(combatant, lambda item: self._item_scaled_stats(item, scale=0.25))
+        max_snapshot = self._combat_projection(combatant, lambda item: self._item_scaled_stats(item, scale=1.0))
+
+        y_cursor = panel_rect.y + padding + 20
+
+        core_rect = pygame.Rect(panel_rect.x + padding, y_cursor, panel_rect.width - padding * 2, 82)
+        pygame.draw.rect(screen, (22, 26, 34), core_rect, border_radius=10)
+        pygame.draw.rect(screen, (78, 96, 118), core_rect, 1, border_radius=10)
+        core_title = self.font.render("Core Attributes", True, (200, 210, 224))
+        screen.blit(core_title, (core_rect.x + 12, core_rect.y + 8))
+
+        labels = [
+            ("Strength", combatant.strength),
+            ("Wisdom", combatant.mastery),
+            ("Agility", combatant.agility),
+        ]
+        column_width = (core_rect.width - 20) // len(labels)
+        for idx, (label, value) in enumerate(labels):
+            x = core_rect.x + 12 + idx * column_width
+            label_text = self.font.render(label, True, (180, 190, 205))
+            value_text = self.font.render(str(value), True, (235, 240, 245))
+            screen.blit(label_text, (x, core_rect.y + 34))
+            screen.blit(value_text, (x, core_rect.y + 54))
+
+        y_cursor = core_rect.bottom + section_gap
+
+        resource_rect = pygame.Rect(panel_rect.x + padding, y_cursor, panel_rect.width - padding * 2, 72)
+        pygame.draw.rect(screen, (22, 26, 34), resource_rect, border_radius=10)
+        pygame.draw.rect(screen, (78, 96, 118), resource_rect, 1, border_radius=10)
+        resource_title = self.font.render("Resource Pools", True, (200, 210, 224))
+        screen.blit(resource_title, (resource_rect.x + 12, resource_rect.y + 8))
+
+        resource_lines = [
+            f"Health {combatant.hit_points}/{max_health}",
+            f"{resource_type.title()} {combatant.resource(resource_type)}/{max_resource}",
+        ]
+        extras = [f"{key.title()} {value}" for key, value in combatant.resource_pools.items() if key != resource_type]
+        if extras:
+            resource_lines.append(" • ".join(extras))
+
+        for idx, text in enumerate(resource_lines):
+            line = self.font.render(text, True, (205, 214, 228))
+            screen.blit(line, (resource_rect.x + 12, resource_rect.y + 30 + idx * 20))
+
+        y_cursor = resource_rect.bottom + section_gap
+
+        derived_rect = pygame.Rect(panel_rect.x + padding, y_cursor, panel_rect.width - padding * 2, 118)
+        pygame.draw.rect(screen, (22, 26, 34), derived_rect, border_radius=10)
+        pygame.draw.rect(screen, (78, 96, 118), derived_rect, 1, border_radius=10)
+        derived_title = self.font.render("Derived Stats", True, (200, 210, 224))
+        screen.blit(derived_title, (derived_rect.x + 12, derived_rect.y + 8))
+
+        damage_range = f"Damage Power: {current_snapshot['attack_power']} (range {min_snapshot['attack_power']}–{max_snapshot['attack_power']})"
+        armor_line = f"Armor from gear: {current_snapshot['gear_defense']} (base {current_snapshot['base_defense']})"
+        mitigation_line = f"Total mitigation: {current_snapshot['defense']}"
+        speed_line = f"Weapon speed bonus: +{current_snapshot['gear_speed']}"
+
+        derived_lines = [damage_range, armor_line, mitigation_line, speed_line]
+        for idx, text in enumerate(derived_lines):
+            line = self.font.render(text, True, (205, 214, 228))
+            screen.blit(line, (derived_rect.x + 12, derived_rect.y + 32 + idx * 20))
+
+        y_cursor = derived_rect.bottom + section_gap
+
+        gear_rect = pygame.Rect(panel_rect.x + padding, y_cursor, panel_rect.width - padding * 2, panel_rect.bottom - padding - y_cursor)
+        pygame.draw.rect(screen, (22, 26, 34), gear_rect, border_radius=10)
+        pygame.draw.rect(screen, (78, 96, 118), gear_rect, 1, border_radius=10)
+        gear_title = self.font.render("Gear Contributions", True, (200, 210, 224))
+        screen.blit(gear_title, (gear_rect.x + 12, gear_rect.y + 8))
+
+        columns = ["Slot", "Item", "P", "D", "S"]
+        col_widths = [90, gear_rect.width - 90 - 120, 32, 32, 32]
+        x_positions = [gear_rect.x + 12]
+        for width in col_widths[:-1]:
+            x_positions.append(x_positions[-1] + width)
+        for label, x in zip(columns, x_positions):
+            header = self.font.render(label, True, (170, 180, 192))
+            screen.blit(header, (x, gear_rect.y + 34))
+
+        slot_order = ["helm", "armor", "back", "mainhand", "offhand"]
+        entries: list[tuple[str, Item | None]] = []
+        for slot in slot_order:
+            entries.append((slot, combatant.equipped.get(slot)))
+        for slot, item in combatant.equipped.items():
+            if slot not in slot_order:
+                entries.append((slot, item))
+
+        line_height = self.font.get_height() + 6
+        start_y = gear_rect.y + 56
+        for idx, (slot, item) in enumerate(entries):
+            power = defense = speed = 0
+            name = "Empty"
+            if item:
+                power, defense, speed = self._item_scaled_stats(item)
+                name = item.name.replace("_", " ").title()
+            row_y = start_y + idx * line_height
+            values = [slot.title(), name, str(power), str(defense), str(speed)]
+            for value, x in zip(values, x_positions):
+                color = (205, 214, 228) if item else (150, 160, 174)
+                text = self.font.render(value, True, color)
+                screen.blit(text, (x, row_y))
+
+        totals_label = self.font.render(
+            f"Totals — Power {current_snapshot['gear_power']} • Armor {current_snapshot['gear_defense']} • Speed {current_snapshot['gear_speed']}",
+            True,
+            (190, 200, 214),
+        )
+        screen.blit(totals_label, (gear_rect.x + 12, gear_rect.bottom - totals_label.get_height() - 6))
 
     def _transition_zone(self, direction: str) -> None:
         current = self.context.zones.active_zone
@@ -1419,6 +1594,7 @@ class PygameMMO:
         buttons = [
             ("menu", "≡", self.show_menu_panel or self.show_help_overlay),
             ("inventory", "I", self.show_inventory),
+            ("stats", "C", self.show_stats_panel),
             ("skills", "S", self.show_skills_panel),
             ("quests", "Q", self.show_quests_panel),
         ]
@@ -1445,6 +1621,8 @@ class PygameMMO:
                     self.show_help_overlay = self.show_menu_panel
                 elif name == "inventory":
                     self.show_inventory = not self.show_inventory
+                elif name == "stats":
+                    self.show_stats_panel = not self.show_stats_panel
                 elif name == "skills":
                     self.show_skills_panel = not self.show_skills_panel
                 elif name == "quests":
@@ -1485,6 +1663,7 @@ class PygameMMO:
 
         self._render_quest_panel(screen, bar_height)
         self._render_skills_panel(screen, bar_height)
+        self._render_stats_panel(screen, bar_height)
         self._render_inventory_panel(screen)
         self._render_combat_overlay(screen)
         self._render_help_overlay(screen)
