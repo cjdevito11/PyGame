@@ -1,6 +1,6 @@
 # Contributor quickstart
 
-This guide keeps content additions simple and repeatable. Each example mirrors the data-driven flow used by the CLI and the automated exercises.
+This guide keeps content additions simple and repeatable. Each example mirrors the data-driven flow used by the automated exercises and the Pygame prototype.
 
 ## How to add a new class, appearance, or item
 
@@ -9,7 +9,7 @@ This guide keeps content additions simple and repeatable. Each example mirrors t
    - `data/appearances.yaml` for map symbols and colors
    - `data/classes.yaml` for stats
    - `data/items.json` for equipment
-3. Run the CLI to check your edits and see the new entry.
+3. Run the validation tests to check your edits and see the new entry appear in game builds.
 
 Example (appearance) with inline comments:
 
@@ -19,14 +19,6 @@ Example (appearance) with inline comments:
   description: Flickers near old campfires.
   symbol: "e"                  # single character used on the map
   color: orange                # any readable color name
-```
-
-Quick CLI transcript you can copy:
-
-```bash
-python -m ui.cli data list appearances
-python -m ui.cli data show appearances ember_sprite
-python -m ui.cli data validate
 ```
 
 Item example (kept tiny for readability):
@@ -59,14 +51,14 @@ If you want to follow along manually, reuse the commented fixture files under `t
 ## Coding standards and naming conventions
 
 - Use **snake_case** for file names and identifiers inside JSON/YAML.
-- Keep descriptions friendly and complete sentences; errors echo them back to the CLI.
+- Keep descriptions friendly and complete sentences; errors echo them back in validation output.
 - One responsibility per function; avoid try/except wrappers around imports to surface missing dependencies immediately.
 - Prefer small, commented examples in docs and tests. If a block feels dense, split it and add a clarifying comment.
 - Stick to standard library features in tests unless a dependency is already in `requirements.txt`.
 
 ## Checklist for PRs and local changes
 
-1. Run data validation: `python -m ui.cli data validate`
+1. Run data validation with the automated suite: `python -m unittest tests.test_logging_and_validation`
 2. Run unit tests (fast): `python -m unittest`
 3. Format/clarify docs: keep examples commented and identifiers in snake_case
 4. Describe the change clearly in the commit message and PR summary

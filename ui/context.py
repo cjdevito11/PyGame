@@ -1,7 +1,7 @@
 """Shared helpers for building a game context.
 
-This module centralizes registry loading so both the CLI and the Pygame
-prototype share the same data-driven setup.
+This module centralizes registry loading so the real-time Pygame prototype
+can reuse the same data-driven setup used throughout the systems layer.
 """
 from dataclasses import dataclass
 from pathlib import Path

@@ -1,31 +1,26 @@
 # PyGame
 
-A terminal-friendly demo that shows how to wire data-driven game content using simple registries and schema validation.
+A small Pygame prototype that shows how to wire data-driven game content using simple registries and schema validation.
 
 ## Layout
 
 - `core/`: shared helpers like validation and generic registries.
 - `world/`: runtime entity objects and schemas.
 - `systems/`: wiring and configuration for registries.
-- `ui/`: command-line entry point.
+- `ui/`: real-time Pygame client and context helpers.
 - `persistence/`: YAML/JSON loading utilities.
 - `data/`: sample content files you can edit without touching code.
 - `tests/`: unit tests covering registries, validation, and dynamic loading.
 
 ## Getting started
 
-Install dependencies and try the new real-time Pygame prototype (plus the legacy CLI tools):
+Install dependencies and try the real-time Pygame prototype:
 
 ```bash
 python -m pip install -r requirements.txt
 
 # Real-time prototype (WASD/arrow keys to move, Space to attack)
 python -m ui.game
-
-# CLI helpers remain for data inspection and validation
-python -m ui.cli list appearances
-python -m ui.cli show classes adventurer
-python -m ui.cli validate
 ```
 
 To add new content, drop another entry into the matching file in `data/`. The schemas keep you honest and will show friendly messages if something is missing.

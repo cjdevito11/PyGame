@@ -10,17 +10,9 @@ Keep these helpers nearby while experimenting with new content or mechanics.
 Example:
 
 ```bash
-LOG_LEVEL=DEBUG python -m ui.cli validate
+LOG_LEVEL=DEBUG python -m ui.game
 ```
-
-## CLI debug commands
-
-The CLI exposes a `/debug` group for safe experimentation:
-
-- `python -m ui.cli data debug inspect Aria` — show a character's stats without mutating the world.
-- `python -m ui.cli data debug simulate Aria Shade --weapon bronze_sword` — preview the damage and remaining HP for a fight.
-- `python -m ui.cli data debug spawn Aria lantern` — add an item to a character's backpack for quick testing.
 
 ## Validation hints
 
-Validation errors now point at the offending field path (for example `characters.Shade.class_name`). Use that breadcrumb to jump straight to the YAML/JSON field that needs attention.
+Validation errors now point at the offending field path (for example `characters.Shade.class_name`). Use that breadcrumb to jump straight to the YAML/JSON field that needs attention. Running `python -m unittest tests.test_logging_and_validation` will exercise the registry loaders and surface any data quality issues.
