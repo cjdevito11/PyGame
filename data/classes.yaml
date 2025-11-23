@@ -1,7 +1,7 @@
-- name: adventurer
+- name: soldier
   description: Balanced stats for beginners.
   hit_points: 12
-  mana: 5
+  mana: 0
   resource_type: energy
   resource_max: 12
   resource_regen: 1
@@ -14,3 +14,11 @@
   resource_max: 18
   resource_regen: 2
   gcd_seconds: 1.2
+- name: ninja
+  description: Quick and deadly.
+  hit_points: 10
+  mana: 0
+  resource_type: energy
+  resource_max: 25
+  resource_regen: 1
+  gcd_seconds: 1
