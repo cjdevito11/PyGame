@@ -1,4 +1,4 @@
-"""Wires together registries, schemas, and persistence for the CLI demo."""
+"""Wires together registries, schemas, and persistence for the Pygame demo."""
 import logging
 from pathlib import Path
 from typing import Dict

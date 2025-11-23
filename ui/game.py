@@ -1,7 +1,6 @@
 """Pygame-powered real-time prototype for the data-driven MMORPG skeleton."""
 from __future__ import annotations
 
-import argparse
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +16,7 @@ SCREEN_SIZE = (960, 640)
 BACKGROUND = (16, 18, 24)
 PLAYER_NAME = "Aria"
 DEFAULT_ENEMY_NAME = "Shade"
+DEFAULT_DATA_PATH = Path(__file__).resolve().parent.parent / "data"
 
 
 logger = get_logger(__name__)
@@ -144,35 +144,18 @@ class PygameMMO:
         pygame.quit()
 
 
+def main(*, data_path: Path | None = None, target: str = DEFAULT_ENEMY_NAME) -> int:
+    """Start the real-time demo using bundled data by default."""
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Pygame real-time demo for the data-driven MMORPG skeleton")
-    parser.add_argument(
-        "data_path",
-        nargs="?",
-        default=Path(__file__).resolve().parent.parent / "data",
-        type=Path,
-        help="Path to the data directory containing YAML/JSON definitions.",
-    )
-    parser.add_argument(
-        "--target",
-        default=DEFAULT_ENEMY_NAME,
-        help="Character name to treat as the primary enemy.",
-    )
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    selected_path = data_path or DEFAULT_DATA_PATH
     try:
-        context = build_context(args.data_path)
+        context = build_context(selected_path)
     except Exception as exc:  # pragma: no cover - manual smoke path
         log_with_fields(logger, logging.ERROR, "Failed to start Pygame client", error=str(exc))
         print(f"Failed to start game: {exc}")
         return 1
 
-    app = PygameMMO(context, target=args.target)
+    app = PygameMMO(context, target=target)
     app.run()
     return 0
 
