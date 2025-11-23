@@ -170,6 +170,14 @@ class PygameMMO:
             self.screen_size = (int(size[0]), int(size[1]))
         self.background = settings.get("background", BACKGROUND)
 
+    def _detect_display_size(self) -> Tuple[int, int]:
+        """Return the current monitor resolution for a fullscreen canvas."""
+
+        info = pygame.display.Info()
+        width = max(int(info.current_w), SCREEN_SIZE[0])
+        height = max(int(info.current_h), SCREEN_SIZE[1])
+        return (width, height)
+
     def _spawn_start_area(self) -> Dict[str, Actor]:
         definitions = self.context.bundle.characters.definitions()
         appearances = self.context.bundle.appearances
@@ -1088,6 +1096,31 @@ class PygameMMO:
             screen.blit(surf, (rect.x + padding, y_cursor))
             y_cursor += line_height
 
+    def _wrap_text(self, text: str, max_width: int, *, bullet_prefix: str = "") -> list[str]:
+        assert self.font is not None
+
+        if not text:
+            return []
+
+        words = text.split()
+        if not words:
+            return []
+
+        lines: list[str] = []
+        indent = " " * len(bullet_prefix)
+        current = f"{bullet_prefix}{words[0]}" if bullet_prefix else words[0]
+
+        for word in words[1:]:
+            candidate = f"{current} {word}"
+            if self.font.size(candidate)[0] <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = f"{indent}{word}" if indent else word
+
+        lines.append(current)
+        return lines
+
     def _render_quest_panel(self, screen: pygame.Surface, bar_height: int) -> None:
         assert self.font is not None
         margin = 12
@@ -1125,8 +1158,15 @@ class PygameMMO:
 
         y_cursor = panel_rect.y + 36
         line_spacing = 4
+        max_text_width = panel_width - 24
+        lines: list[str] = []
         for entry in reversed(entries):
-            text = self.font.render(f"• {entry}", True, (205, 210, 215))
+            lines.extend(self._wrap_text(entry, max_width=max_text_width, bullet_prefix="• "))
+
+        for line in lines:
+            text = self.font.render(line, True, (205, 210, 215))
+            if y_cursor + text.get_height() > panel_rect.y + panel_rect.height - 8:
+                break
             screen.blit(text, (panel_rect.x + 12, y_cursor))
             y_cursor += text.get_height() + line_spacing
 
@@ -1355,6 +1395,7 @@ class PygameMMO:
         pygame.init()
         self.font = pygame.font.SysFont("arial", 18)
         try:
+            self.screen_size = self._detect_display_size()
             screen = pygame.display.set_mode(self.screen_size, pygame.FULLSCREEN)
         except Exception as exc:  # pragma: no cover - defensive video fallback
             log_with_fields(logger, logging.WARNING, "Fullscreen mode failed, falling back", error=str(exc))
