@@ -49,6 +49,55 @@ class Actor:
         self._cooldown_timer = self.attack_cooldown
 
 
+@dataclass
+class TutorialManager:
+    """Tracks onboarding checklist steps and temporary help prompts."""
+
+    help_flash_timer: float = 0.0
+    move_complete: bool = False
+    interact_complete: bool = False
+    attack_complete: bool = False
+
+    def update(self, dt: float) -> None:
+        self.help_flash_timer = max(0.0, self.help_flash_timer - dt)
+
+    def request_help(self) -> None:
+        self.help_flash_timer = 6.0
+
+    def record_movement(self, dx: float, dy: float) -> None:
+        if self.move_complete:
+            return
+        if dx != 0.0 or dy != 0.0:
+            self.move_complete = True
+
+    def record_interaction(self) -> None:
+        self.interact_complete = True
+
+    def record_attack(self) -> None:
+        self.attack_complete = True
+
+    def active(self) -> bool:
+        return not self.is_complete() or self.help_flash_timer > 0.0
+
+    def is_complete(self) -> bool:
+        return self.move_complete and self.interact_complete and self.attack_complete
+
+    def prompts(self) -> list[str]:
+        if not self.active():
+            return []
+
+        entries = [
+            (self.move_complete, "Move with WASD/arrow keys."),
+            (self.interact_complete, "Talk to the Guide with E."),
+            (self.attack_complete, "Press Space near enemies to attack."),
+        ]
+        checklist = ["Tutorial:" if not self.is_complete() else "Help: controls & objectives"]
+        for done, text in entries:
+            marker = "✓" if done else "○"
+            checklist.append(f"  {marker} {text}")
+        return checklist
+
+
 class PygameMMO:
     """Lightweight real-time loop that reuses the shared data-driven systems."""
 
@@ -63,6 +112,7 @@ class PygameMMO:
         self.target_defeated = False
         self.zone_prompt: str = ""
         self.actors: Dict[str, Actor] = self._spawn_start_area()
+        self.tutorial = TutorialManager()
         self.bus.subscribe("quest.completed", self._on_quest_completed)
         self.bus.subscribe("quest.turned_in", self._on_quest_turned_in)
         self.bus.subscribe("zone.changed", self._on_zone_changed)
@@ -231,16 +281,21 @@ class PygameMMO:
         else:
             player.move(dx, dy, SCREEN_SIZE)
 
-    def _attempt_attack(self) -> None:
+        self.tutorial.record_movement(dx, dy)
+
+    def _attempt_attack(self) -> bool:
         player = self.actors.get(PLAYER_NAME)
         target = self.actors.get(self.target_name)
         if not player or not target or not player.can_attack():
-            return
+            return False
 
         if player.rect.colliderect(target.rect.inflate(8, 8)):
             log_with_fields(logger, logging.INFO, "Real-time attack", attacker=player.name, defender=target.name)
             self.bus.publish("combat.attack", attacker=player.name, defender=target.name)
             player.trigger_attack()
+            self.tutorial.record_attack()
+            return True
+        return False
 
     def _quest_status(self) -> str:
         record = self.context.quests.quests.get("defeat-shade")
@@ -253,17 +308,20 @@ class PygameMMO:
             return False
         return player.rect.colliderect(actor.rect.inflate(radius, radius))
 
-    def _handle_interaction(self) -> None:
+    def _handle_interaction(self) -> bool:
         if not self._player_near(QUEST_GIVER_NAME):
-            return
+            return False
 
         status = self._quest_status()
         if status == "available":
             self.bus.publish("quest.accepted", quest="defeat-shade", owner=PLAYER_NAME)
             self.quest_log.append("Quest accepted: Defeat Shade before returning to the Guide.")
-        elif status == "completed":
+            return True
+        if status == "completed":
             self.bus.publish("quest.turned_in", quest="defeat-shade", owner=PLAYER_NAME)
             self.quest_log.append("Quest turned in: The Guide rewards your effort.")
+            return True
+        return False
 
     def _maybe_spawn_target(self) -> None:
         zone = self.context.zones.active_zone
@@ -430,10 +488,31 @@ class PygameMMO:
             hp_text = self.font.render(label, True, (236, 240, 241))
             screen.blit(hp_text, (actor.rect.x - 8, actor.rect.y - 28))
 
-        prompts: list[str] = ["Move with WASD/arrow keys."]
-        if self.zone_prompt:
-            prompts.insert(0, self.zone_prompt)
+        margin = 16
+        line_height = 22
+        section_spacing = 10
+
         status = self._quest_status()
+        y_cursor = margin
+
+        if self.context.zones.active_zone:
+            zone = self.context.zones.active_zone
+            zone_text = self.font.render(
+                f"Zone: {zone.name} (danger: {zone.danger_level})", True, (170, 170, 170)
+            )
+            screen.blit(zone_text, (margin, y_cursor))
+            y_cursor += line_height + section_spacing
+
+        prompts: list[str] = []
+        if self.zone_prompt:
+            prompts.append(self.zone_prompt)
+
+        tutorial_prompts = self.tutorial.prompts()
+        if tutorial_prompts:
+            prompts.extend(tutorial_prompts)
+        else:
+            prompts.append("Press H to re-open control hints.")
+
         if status == "available":
             prompts.append("Press E near the Guide to accept the quest.")
         elif status == "accepted":
@@ -443,9 +522,13 @@ class PygameMMO:
         elif status == "turned_in":
             prompts.append("Quest complete! Explore the camp at your pace.")
 
-        for idx, message in enumerate(prompts):
+        for message in prompts:
             prompt = self.font.render(message, True, (200, 200, 200))
-            screen.blit(prompt, (16, 16 + idx * 22))
+            screen.blit(prompt, (margin, y_cursor))
+            y_cursor += line_height
+
+        if prompts:
+            y_cursor += section_spacing
 
         if self._player_near(QUEST_GIVER_NAME):
             interaction_text = "Press E to talk" if status != "turned_in" else "Enjoy the fire."
@@ -453,18 +536,12 @@ class PygameMMO:
             guide = self.actors[QUEST_GIVER_NAME]
             screen.blit(bubble, (guide.rect.x - 8, guide.rect.y - 28))
 
+        log_title_y = SCREEN_SIZE[1] - 120
         log_title = self.font.render("Quest Log", True, (170, 186, 193))
-        screen.blit(log_title, (16, SCREEN_SIZE[1] - 120))
+        screen.blit(log_title, (margin, log_title_y))
         for idx, entry in enumerate(self.quest_log[-4:]):
             log_line = self.font.render(f"• {entry}", True, (210, 210, 210))
-            screen.blit(log_line, (16, SCREEN_SIZE[1] - 96 + idx * 20))
-
-        if self.context.zones.active_zone:
-            zone = self.context.zones.active_zone
-            zone_text = self.font.render(
-                f"Zone: {zone.name} (danger: {zone.danger_level})", True, (170, 170, 170)
-            )
-            screen.blit(zone_text, (16, 44))
+            screen.blit(log_line, (margin, log_title_y + 24 + idx * 20))
 
         pygame.display.flip()
 
@@ -504,6 +581,7 @@ class PygameMMO:
 
         while self.running:
             dt = clock.tick(60) / 1000.0
+            self.tutorial.update(dt)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
@@ -511,7 +589,10 @@ class PygameMMO:
                     if event.key == pygame.K_SPACE:
                         self._attempt_attack()
                     if event.key == pygame.K_e:
-                        self._handle_interaction()
+                        if self._handle_interaction():
+                            self.tutorial.record_interaction()
+                    if event.key == pygame.K_h:
+                        self.tutorial.request_help()
 
             for actor in self.actors.values():
                 actor.update_cooldown(dt)
