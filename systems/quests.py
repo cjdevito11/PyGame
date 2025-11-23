@@ -4,10 +4,19 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Callable, Dict
+from typing import Any, Callable, Dict, List
 
 from core.logging_config import get_logger, log_with_fields
 from systems.event_bus import Event, EventBus
+
+
+@dataclass
+class QuestStage:
+    description: str
+    trigger_event: str
+    condition: Callable[[Event], bool] | None = None
+    target_monsters: Dict[str, int] | None = None
+    loot_queue: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -27,6 +36,10 @@ class QuestRecord:
     loot_queue: list[str] = field(default_factory=list)
     progress: Dict[str, int] = field(default_factory=dict)
     rewards_granted: bool = False
+    prerequisites: List[str] = field(default_factory=list)
+    stages: List[QuestStage] = field(default_factory=list)
+    stage_progress: List[Dict[str, int]] = field(default_factory=list)
+    current_stage: int = 0
 
 
 class QuestSystem:
@@ -35,10 +48,13 @@ class QuestSystem:
     def __init__(self, bus: EventBus) -> None:
         self.bus = bus
         self.quests: Dict[str, QuestRecord] = {}
+        self.dependents: Dict[str, list[str]] = {}
         self.logger = get_logger(__name__)
         self.bus.subscribe("quest.accepted", self._on_accept_event)
         self.bus.subscribe("quest.turned_in", self._on_turn_in_event)
         self.bus.subscribe("combat.defeated", self._on_defeat_event)
+        self.bus.subscribe("npc.talked", self._on_talk_event)
+        self.bus.subscribe("inventory.item_added", self._on_inventory_event)
 
     def register_quest(
         self,
@@ -55,10 +71,31 @@ class QuestSystem:
         condition: Callable[[Event], bool] | None = None,
         target_monsters: Dict[str, int] | None = None,
         loot_queue: list[str] | None = None,
+        prerequisites: list[str] | None = None,
+        stages: list[Dict[str, Any]] | None = None,
     ) -> None:
         items = list(reward_items or [])
         if reward_item:
             items.append(reward_item)
+
+        stage_objects: list[QuestStage] = []
+        for stage in stages or []:
+            condition = stage.get("condition")
+            if not condition and stage.get("condition_field"):
+                field = stage["condition_field"]
+                expected = stage.get("condition_value")
+                condition = lambda event, field=field, expected=expected: event.payload.get(field) == expected  # noqa: E731
+            stage_objects.append(
+                QuestStage(
+                    description=stage["description"],
+                    trigger_event=stage.get("trigger_event", trigger_event),
+                    condition=condition,
+                    target_monsters=stage.get("target_monsters"),
+                    loot_queue=list(stage.get("loot_queue", []) or []),
+                )
+            )
+
+        prerequisites = list(prerequisites or [])
         record = QuestRecord(
             identifier=identifier,
             description=description,
@@ -72,9 +109,22 @@ class QuestSystem:
             condition=condition,
             target_monsters=target_monsters or {},
             loot_queue=list(loot_queue or []),
+            prerequisites=prerequisites,
+            stages=stage_objects,
+            stage_progress=[{} for _ in stage_objects],
+            status="locked" if prerequisites else "available",
         )
         self.quests[identifier] = record
         self.bus.subscribe(trigger_event, lambda event: self._handle_trigger(record.identifier, event))
+        for idx, stage in enumerate(stage_objects):
+            self.bus.subscribe(
+                stage.trigger_event,
+                lambda event, quest_id=record.identifier, stage_index=idx: self._handle_stage_trigger(
+                    quest_id, stage_index, event
+                ),
+            )
+        for quest_name in prerequisites:
+            self.dependents.setdefault(quest_name, []).append(identifier)
         log_with_fields(
             self.logger,
             logging.INFO,
@@ -91,6 +141,27 @@ class QuestSystem:
         if quest.condition and not quest.condition(event):
             return quest
 
+        return self._complete_quest(quest)
+
+    def _handle_stage_trigger(self, quest_id: str, stage_index: int, event: Event) -> QuestRecord:
+        quest = self.quests[quest_id]
+        if quest.status != "accepted" or quest.current_stage != stage_index:
+            return quest
+
+        stage = quest.stages[stage_index]
+        if stage.condition and not stage.condition(event):
+            return quest
+
+        if stage.target_monsters:
+            defeated = event.payload.get("defender")
+            attacker = event.payload.get("attacker")
+            self._check_monster_objectives(quest, defeated, attacker, stage_index=stage_index)
+            return quest
+
+        self._complete_stage(quest)
+        return quest
+
+    def _complete_quest(self, quest: QuestRecord) -> QuestRecord:
         quest.status = "completed"
         completion_payload = {
             "quest": quest.identifier,
@@ -102,7 +173,6 @@ class QuestSystem:
             "reward_skills": quest.reward_skills,
         }
         self.bus.publish("quest.completed", **completion_payload)
-        quest.rewards_granted = True
         log_with_fields(
             self.logger,
             logging.INFO,
@@ -112,28 +182,75 @@ class QuestSystem:
         )
         return quest
 
-    def _check_monster_objectives(self, quest: QuestRecord, defeated: str, attacker: str | None) -> None:
-        if quest.status != "accepted" or not quest.target_monsters:
+    def _complete_stage(self, quest: QuestRecord) -> QuestRecord:
+        quest.current_stage += 1
+        if quest.current_stage >= len(quest.stages):
+            return self._complete_quest(quest)
+
+        next_stage = quest.stages[quest.current_stage]
+        self.bus.publish(
+            "quest.stage_advanced",
+            quest=quest.identifier,
+            stage=quest.current_stage,
+            description=next_stage.description,
+        )
+        log_with_fields(
+            self.logger,
+            logging.INFO,
+            "Quest stage advanced",
+            identifier=quest.identifier,
+            stage=quest.current_stage,
+        )
+        return quest
+
+    def _check_monster_objectives(
+        self, quest: QuestRecord, defeated: str, attacker: str | None, *, stage_index: int | None = None
+    ) -> None:
+        if quest.status != "accepted":
+            return
+        targets = quest.target_monsters
+        if stage_index is not None and quest.stages:
+            targets = quest.stages[stage_index].target_monsters
+        if not targets:
             return
         if quest.owner and attacker and quest.owner != attacker:
             return
-        target_count = quest.target_monsters.get(defeated)
+        target_count = targets.get(defeated)
         if target_count is None:
             return
-        quest.progress[defeated] = quest.progress.get(defeated, 0) + 1
-        self.bus.publish("quest.progress", quest=quest.identifier, defeated=defeated, progress=quest.progress)
+        progress = quest.progress
+        if stage_index is not None and quest.stages:
+            progress = quest.stage_progress[stage_index]
+        progress[defeated] = progress.get(defeated, 0) + 1
+        self.bus.publish(
+            "quest.progress",
+            quest=quest.identifier,
+            defeated=defeated,
+            progress=progress,
+            stage=stage_index,
+        )
 
-        if quest.loot_queue:
-            loot_item = quest.loot_queue.pop(0)
+        loot_queue = quest.loot_queue
+        if stage_index is not None and quest.stages and quest.stages[stage_index].loot_queue:
+            loot_queue = quest.stages[stage_index].loot_queue
+
+        if loot_queue:
+            loot_item = loot_queue.pop(0)
             self.bus.publish("loot.grant", owner=quest.owner, item=loot_item, reason="questloot")
 
-        if all(quest.progress.get(monster, 0) >= count for monster, count in quest.target_monsters.items()):
-            self._handle_trigger(quest.identifier, Event(name="combat.defeated", payload={"defender": defeated}))
+        if all(progress.get(monster, 0) >= count for monster, count in targets.items()):
+            if stage_index is not None and quest.stages:
+                self._complete_stage(quest)
+            else:
+                self._handle_trigger(quest.identifier, Event(name="combat.defeated", payload={"defender": defeated}))
 
     def accept_quest(self, identifier: str, *, owner: str | None = None) -> QuestRecord:
         quest = self.quests[identifier]
         if quest.status != "available":
             return quest
+        quest.current_stage = 0
+        quest.progress.clear()
+        quest.stage_progress = [{} for _ in quest.stages]
         quest.owner = owner or quest.owner
         quest.status = "accepted"
         log_with_fields(
@@ -156,6 +273,7 @@ class QuestSystem:
             for item_name in quest.reward_items:
                 self.bus.publish("loot.grant", owner=quest.owner, item=item_name, reason="quest")
             quest.rewards_granted = True
+        self._unlock_dependents(identifier)
         log_with_fields(
             self.logger,
             logging.INFO,
@@ -185,4 +303,42 @@ class QuestSystem:
         monster = event.payload.get("defender")
         attacker = event.payload.get("attacker")
         for quest in self.quests.values():
+            if quest.stages:
+                continue
             self._check_monster_objectives(quest, monster, attacker)
+
+    def _on_talk_event(self, event: Event) -> None:
+        npc = event.payload.get("npc")
+        if not npc:
+            return
+        for quest in self.quests.values():
+            if quest.status != "accepted" or not quest.stages:
+                continue
+            stage = quest.stages[quest.current_stage]
+            if stage.trigger_event == "npc.talked":
+                self._handle_stage_trigger(quest.identifier, quest.current_stage, event)
+
+    def _on_inventory_event(self, event: Event) -> None:
+        for quest in self.quests.values():
+            if quest.status != "accepted" or not quest.stages:
+                continue
+            stage = quest.stages[quest.current_stage]
+            if stage.trigger_event == "inventory.item_added":
+                self._handle_stage_trigger(quest.identifier, quest.current_stage, event)
+
+    def _unlock_dependents(self, quest_id: str) -> None:
+        for dependent in self.dependents.get(quest_id, []):
+            quest = self.quests.get(dependent)
+            if not quest or quest.status != "locked":
+                continue
+            if not all(self.quests[req].status == "turned_in" for req in quest.prerequisites):
+                continue
+            quest.status = "available"
+            self.bus.publish("quest.unlocked", quest=quest.identifier, prerequisites=quest.prerequisites)
+            log_with_fields(
+                self.logger,
+                logging.INFO,
+                "Quest unlocked",
+                identifier=quest.identifier,
+                prerequisites=quest.prerequisites,
+            )
