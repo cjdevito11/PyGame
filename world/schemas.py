@@ -52,6 +52,8 @@ class CharacterDefinition(BaseDefinition):
     gold: int = Field(default=0, ge=0)
     bag_capacity: int = Field(default=10, ge=1)
     family: str | None = Field(default=None)
+    stats: dict[str, int] = Field(default_factory=dict)
+    skills: dict[str, int] = Field(default_factory=dict)
 
 
 class AbilityDefinition(BaseDefinition):

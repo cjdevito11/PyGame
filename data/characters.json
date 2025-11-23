@@ -6,7 +6,9 @@
     "appearance": "hero",
     "items": ["bronze_sword"],
     "gold": 5,
-    "family": "human"
+    "family": "human",
+    "stats": {"strength": 3, "agility": 4, "mastery": 1},
+    "skills": {"blade_mastery": 1, "survival": 1}
   },
   {
     "name": "Shade",
@@ -15,6 +17,8 @@
     "appearance": "ghost",
     "items": ["lantern"],
     "gold": 3,
-    "family": "wraith"
+    "family": "wraith",
+    "stats": {"strength": 2, "agility": 2, "mastery": 3},
+    "skills": {"shadowcraft": 2}
   }
 ]

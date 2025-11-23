@@ -27,6 +27,10 @@ class Combatant:
     cooldowns: Dict[str, int] = field(default_factory=dict)
     family: str | None = None
     position: Tuple[int, int] = (0, 0)
+    strength: int = 0
+    agility: int = 0
+    mastery: int = 0
+    skills: Dict[str, int] = field(default_factory=dict)
 
     def is_alive(self) -> bool:
         return self.hit_points > 0
@@ -81,6 +85,8 @@ class CombatSystem:
         *,
         bag_capacity: int = 10,
         family: str | None = None,
+        stats: Dict[str, int] | None = None,
+        skills: Dict[str, int] | None = None,
     ) -> Combatant:
         if name in self.characters:
             return self.characters[name]
@@ -95,6 +101,10 @@ class CombatSystem:
             gold=gold,
             base_capacity=bag_capacity,
             family=family,
+            strength=int((stats or {}).get("strength", 0)),
+            agility=int((stats or {}).get("agility", 0)),
+            mastery=int((stats or {}).get("mastery", 0)),
+            skills=dict(skills or {}),
         )
         for item in items:
             self._maybe_equip(combatant, item)
@@ -128,6 +138,25 @@ class CombatSystem:
             reason=reason or "event",
         )
         self.bus.publish("inventory.item_added", owner=character_name, item=item_name, reason=reason)
+
+    def equip_item(self, character_name: str, item_name: str) -> Item:
+        """Explicitly equip a carried item, overriding any auto-picks."""
+
+        combatant = self.characters[character_name]
+        item = next((it for it in combatant.inventory if it.name == item_name), None)
+        if not item:
+            raise KeyError(f"{character_name} cannot equip missing item {item_name}")
+        combatant.equipped[item.slot] = item
+        log_with_fields(
+            self.logger,
+            logging.INFO,
+            "Item equipped",
+            character=character_name,
+            item=item_name,
+            slot=item.slot,
+        )
+        self.bus.publish("inventory.equipped", owner=character_name, item=item_name, slot=item.slot)
+        return item
 
     def _handle_loot(self, event: Event) -> Dict[str, str]:
         owner = event.payload["owner"]
@@ -234,8 +263,8 @@ class CombatSystem:
             combatant.equipped[item.slot] = item
 
     def _attack_power(self, attacker: Combatant, weapon_name: str | None, *, persist: bool) -> int:
-        base_power = 1
-        speed_bonus = 0
+        base_power = 1 + attacker.strength
+        speed_bonus = attacker.agility // 2
 
         for item in attacker.equipped.values():
             pwr, _, spd = self._effective_item_stats(item)
@@ -267,7 +296,7 @@ class CombatSystem:
         return attack_power
 
     def _calculate_resilience(self, defender: Combatant) -> int:
-        total_defense = 0
+        total_defense = defender.mastery + defender.agility // 3 + defender.strength // 4
         for item in defender.equipped.values():
             _, defense, _ = self._effective_item_stats(item)
             total_defense += defense

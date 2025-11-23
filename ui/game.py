@@ -14,6 +14,7 @@ from core.logging_config import get_logger, log_with_fields
 from systems import EventBus
 from world.zones import Zone
 from ui.context import GameContext, build_context
+from world.entities import Item
 
 SCREEN_SIZE = (960, 640)
 BACKGROUND = (16, 18, 24)
@@ -47,6 +48,24 @@ class Actor:
 
     def trigger_attack(self) -> None:
         self._cooldown_timer = self.attack_cooldown
+
+
+@dataclass
+class ItemSlot:
+    rect: pygame.Rect
+    item: Item | None
+    slot_name: str | None
+    category: str  # "equip", "pack", "sell", "drop"
+
+
+RARITY_COLORS: Dict[str | None, pygame.Color] = {
+    None: pygame.Color(160, 160, 170),
+    "common": pygame.Color(180, 185, 200),
+    "uncommon": pygame.Color(90, 173, 115),
+    "rare": pygame.Color(90, 145, 205),
+    "epic": pygame.Color(170, 90, 205),
+    "legendary": pygame.Color(212, 146, 44),
+}
 
 
 @dataclass
@@ -116,6 +135,13 @@ class PygameMMO:
         self.show_inventory = False
         self.loot_banner: str | None = None
         self.loot_banner_timer: float = 0.0
+        self.mouse_pos: Tuple[int, int] = (0, 0)
+        self.pack_slots: list[ItemSlot] = []
+        self.equip_slots: list[ItemSlot] = []
+        self.action_slots: list[ItemSlot] = []
+        self.dragging_slot: ItemSlot | None = None
+        self.drag_offset: Tuple[int, int] = (0, 0)
+        self.hovered_slot: ItemSlot | None = None
         self.bus.subscribe("quest.completed", self._on_quest_completed)
         self.bus.subscribe("quest.turned_in", self._on_quest_turned_in)
         self.bus.subscribe("zone.changed", self._on_zone_changed)
@@ -287,9 +313,10 @@ class PygameMMO:
 
         self.tutorial.record_movement(dx, dy)
 
-    def _attempt_attack(self) -> bool:
+    def _attempt_attack(self, target_name: str | None = None) -> bool:
         player = self.actors.get(PLAYER_NAME)
-        target = self.actors.get(self.target_name)
+        target_label = target_name or self.target_name
+        target = self.actors.get(target_label)
         if not player or not target or not player.can_attack():
             return False
 
@@ -326,6 +353,57 @@ class PygameMMO:
             self.quest_log.append("Quest turned in: The Guide rewards your effort.")
             return True
         return False
+
+    def _handle_attack_click(self, pos: Tuple[int, int]) -> bool:
+        for name, actor in self.actors.items():
+            if name == PLAYER_NAME:
+                continue
+            if actor.rect.collidepoint(pos):
+                self.target_name = name
+                return self._attempt_attack(name)
+        return False
+
+    def _start_drag(self, pos: Tuple[int, int]) -> bool:
+        if not self.show_inventory:
+            return False
+        slot = self._slot_for_position(pos)
+        if not slot or not slot.item:
+            return False
+        self.dragging_slot = slot
+        self.drag_offset = (pos[0] - slot.rect.x, pos[1] - slot.rect.y)
+        return True
+
+    def _drop_item(self, item: Item) -> None:
+        removed = self.context.combat.remove_item(PLAYER_NAME, item.name)
+        if removed:
+            self.quest_log.append(f"Dropped {item.name.replace('_', ' ').title()} nearby.")
+
+    def _complete_drag(self, pos: Tuple[int, int]) -> None:
+        if not self.dragging_slot:
+            return
+
+        slot = self._slot_for_position(pos)
+        item = self.dragging_slot.item
+        combatant = self._player_combatant()
+        if item and slot:
+            if slot.category == "equip" and slot.slot_name == item.slot:
+                self.context.combat.equip_item(PLAYER_NAME, item.name)
+            elif slot.category == "pack" and self.dragging_slot.category == "equip":
+                if combatant and self.dragging_slot.slot_name:
+                    if combatant.equipped.get(self.dragging_slot.slot_name) is item:
+                        combatant.equipped.pop(self.dragging_slot.slot_name, None)
+            elif slot.category == "sell":
+                try:
+                    result = self.bus.publish("economy.sell", seller=PLAYER_NAME, store="camp", item=item.name)
+                    payout = result.get("payout") if isinstance(result, dict) else None
+                    if payout:
+                        self.quest_log.append(f"Sold {item.name.replace('_', ' ').title()} for {payout}g.")
+                except Exception as exc:  # pragma: no cover - defensive UX path
+                    log_with_fields(logger, logging.WARNING, "Sell failed", item=item.name, error=str(exc))
+            elif slot.category == "drop":
+                self._drop_item(item)
+
+        self.dragging_slot = None
 
     def _maybe_spawn_target(self) -> None:
         zone = self.context.zones.active_zone
@@ -474,6 +552,96 @@ class PygameMMO:
         pygame.draw.rect(screen, (255, 223, 128), box, 2, border_radius=8)
         screen.blit(banner_text, (rect.x, rect.y))
 
+    def _slot_for_position(self, pos: Tuple[int, int]) -> ItemSlot | None:
+        for slot in self.equip_slots + self.pack_slots + self.action_slots:
+            if slot.rect.collidepoint(pos):
+                return slot
+        return None
+
+    def _draw_item_icon(self, screen: pygame.Surface, item: Item, rect: pygame.Rect, *, highlight: bool = False) -> None:
+        assert self.font is not None
+        pygame.draw.rect(screen, (28, 32, 40), rect, border_radius=6)
+        border_color = self._rarity_color(item.rarity)
+        border_width = 3 if highlight else 2
+        pygame.draw.rect(screen, border_color, rect, border_width, border_radius=6)
+        name = item.name.replace("_", " ").title()
+        label = self.font.render(name, True, border_color)
+        stats: list[str] = []
+        if item.power:
+            stats.append(f"P{item.power}")
+        if item.defense:
+            stats.append(f"D{item.defense}")
+        if item.speed:
+            stats.append(f"S{item.speed}")
+        stat_label = self.font.render(", ".join(stats) or "—", True, (205, 210, 220))
+        screen.blit(label, (rect.x + 8, rect.y + 6))
+        screen.blit(stat_label, (rect.x + 8, rect.y + rect.height - 22))
+
+    def _rarity_color(self, rarity: str | None) -> pygame.Color:
+        return RARITY_COLORS.get(rarity, RARITY_COLORS[None])
+
+    def _item_primary_stats(self, item: Item) -> Tuple[int, int, int]:
+        return item.power, item.defense, item.speed
+
+    def _render_item_tooltip(self, screen: pygame.Surface) -> None:
+        if not self.hovered_slot or not self.hovered_slot.item or not self.font:
+            return
+
+        item = self.hovered_slot.item
+        rarity_color = self._rarity_color(item.rarity)
+        lines: list[tuple[str, pygame.Color]] = []
+        lines.append((item.name.replace("_", " ").title(), rarity_color))
+        rarity_label = f"{item.rarity.title()}" if item.rarity else "Unmarked"
+        lines.append((f"{rarity_label} • {item.slot.title()}", pygame.Color(200, 205, 215)))
+        lines.append((item.description, pygame.Color(215, 215, 215)))
+
+        power, defense, speed = self._item_primary_stats(item)
+        stat_bits = []
+        if power:
+            stat_bits.append(f"+{power} Power")
+        if defense:
+            stat_bits.append(f"+{defense} Defense")
+        if speed:
+            stat_bits.append(f"+{speed} Speed")
+        if item.capacity_bonus:
+            stat_bits.append(f"+{item.capacity_bonus} Capacity")
+        if stat_bits:
+            lines.append((", ".join(stat_bits), pygame.Color(190, 205, 235)))
+        if item.max_durability:
+            lines.append((f"Durability {item.durability}/{item.max_durability}", pygame.Color(180, 190, 210)))
+        if item.value:
+            lines.append((f"Value {item.value}g", pygame.Color(205, 190, 155)))
+
+        compare = bool(pygame.key.get_mods() & pygame.KMOD_SHIFT)
+        combatant = self._player_combatant()
+        equipped = combatant.equipped.get(item.slot) if combatant else None
+        if compare and combatant and equipped and equipped is not item:
+            new_stats = self._item_primary_stats(item)
+            old_stats = self._item_primary_stats(equipped)
+            deltas = [new - old for new, old in zip(new_stats, old_stats)]
+            labels = ["Power", "Defense", "Speed"]
+            for label_text, delta in zip(labels, deltas):
+                if delta:
+                    sign = "+" if delta > 0 else ""
+                    color = pygame.Color(120, 200, 140) if delta > 0 else pygame.Color(205, 110, 110)
+                    lines.append((f"Shift: {label_text} {sign}{delta} vs equipped", color))
+
+        padding = 10
+        max_width = 0
+        rendered = []
+        for text, color in lines:
+            surf = self.font.render(text, True, color)
+            rendered.append(surf)
+            max_width = max(max_width, surf.get_width())
+        height = sum(s.get_height() for s in rendered) + padding * 2 + (len(rendered) - 1) * 4
+        tooltip_rect = pygame.Rect(self.mouse_pos[0] + 18, self.mouse_pos[1] + 18, max_width + padding * 2, height)
+        pygame.draw.rect(screen, (24, 24, 30), tooltip_rect, border_radius=8)
+        pygame.draw.rect(screen, rarity_color, tooltip_rect, 2, border_radius=8)
+        cursor_y = tooltip_rect.y + padding
+        for surf in rendered:
+            screen.blit(surf, (tooltip_rect.x + padding, cursor_y))
+            cursor_y += surf.get_height() + 4
+
     def _render_inventory_panel(self, screen: pygame.Surface) -> None:
         if not self.show_inventory:
             return
@@ -483,94 +651,121 @@ class PygameMMO:
         if not combatant:
             return
 
-        panel_width = 340
+        panel_width = 660
+        panel_height = 360
         margin = 14
-        panel_rect = pygame.Rect(SCREEN_SIZE[0] - panel_width - margin, margin, panel_width, 240)
-        pygame.draw.rect(screen, (30, 36, 48), panel_rect, border_radius=8)
-        pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=8)
+        panel_rect = pygame.Rect(SCREEN_SIZE[0] - panel_width - margin, margin, panel_width, panel_height)
+        pygame.draw.rect(screen, (30, 36, 48), panel_rect, border_radius=10)
+        pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=10)
 
-        title = self.font.render("Inventory (press I)", True, (220, 230, 235))
+        self.pack_slots = []
+        self.equip_slots = []
+        self.action_slots = []
+
+        title = self.font.render("Inventory (I) — drag to equip, sell, or drop", True, (220, 230, 235))
         screen.blit(title, (panel_rect.x + 12, panel_rect.y + 10))
 
         gold_amount = self.context.economy.wallets.get(PLAYER_NAME, combatant.gold)
         gold_text = self.font.render(f"Gold: {gold_amount}", True, (240, 210, 140))
         screen.blit(gold_text, (panel_rect.x + 12, panel_rect.y + 36))
 
-        capacity_note = self.font.render(
-            f"Slots: {len(combatant.inventory)}/{combatant.capacity()}", True, (180, 190, 210)
+        stats_line = self.font.render(
+            f"STR {combatant.strength} | AGI {combatant.agility} | MAS {combatant.mastery}",
+            True,
+            (200, 210, 225),
         )
-        screen.blit(capacity_note, (panel_rect.x + 12, panel_rect.y + 58))
+        screen.blit(stats_line, (panel_rect.x + 12, panel_rect.y + 58))
 
-        equipped_y = panel_rect.y + 82
-        screen.blit(self.font.render("Equipped:", True, (210, 215, 220)), (panel_rect.x + 12, equipped_y))
-        equipped_y += 22
-        slots = ["mainhand", "offhand", "armor", "helm", "back"]
-        for slot in slots:
-            item = combatant.equipped.get(slot)
-            label = item.name.replace("_", " ").title() if item else "—"
-            stats = []
-            if item:
-                if item.power:
-                    stats.append(f"P{item.power}")
-                if item.defense:
-                    stats.append(f"D{item.defense}")
-                if item.speed:
-                    stats.append(f"S{item.speed}")
-                if item.max_durability:
-                    stats.append(f"Dur {item.durability}/{item.max_durability}")
-            suffix = f" ({', '.join(stats)})" if stats else ""
-            slot_text = self.font.render(f"{slot.title()}: {label}{suffix}", True, (200, 200, 210))
-            screen.blit(slot_text, (panel_rect.x + 24, equipped_y))
-            equipped_y += 20
+        skills = ", ".join(f"{name.replace('_', ' ').title()} {rank}" for name, rank in combatant.skills.items())
+        skills_line = self.font.render(f"Skills: {skills or 'None learned yet'}", True, (180, 190, 210))
+        screen.blit(skills_line, (panel_rect.x + 12, panel_rect.y + 78))
 
-        items_y = equipped_y + 12
-        screen.blit(self.font.render("Pack:", True, (210, 215, 220)), (panel_rect.x + 12, items_y))
-        items_y += 22
-        if combatant.inventory:
-            for item in combatant.inventory:
-                stats = []
-                if item.power:
-                    stats.append(f"P{item.power}")
-                if item.defense:
-                    stats.append(f"D{item.defense}")
-                if item.speed:
-                    stats.append(f"S{item.speed}")
-                if item.max_durability:
-                    condition = f" {item.durability}/{item.max_durability}"
-                    if item.appearance_states:
-                        condition += f" {item.appearance_states[min(2, int((1 - (item.durability or 0) / item.max_durability) * 3))]}"
-                    stats.append(f"Dur{condition}")
-                stats_suffix = f" ({', '.join(stats)})" if stats else ""
-                line = self.font.render(
-                    f"• {item.name.replace('_', ' ').title()} [{item.slot}]{stats_suffix}",
-                    True,
-                    (190, 195, 205),
-                )
-                screen.blit(line, (panel_rect.x + 18, items_y))
-                items_y += 18
-        else:
-            empty = self.font.render("No items carried.", True, (150, 150, 160))
-            screen.blit(empty, (panel_rect.x + 18, items_y))
+        slot_size = 66
+        spacing = 10
+        paper_rect = pygame.Rect(panel_rect.x + 12, panel_rect.y + 112, 240, panel_height - 130)
+        pygame.draw.rect(screen, (28, 32, 42), paper_rect, border_radius=8)
+        pygame.draw.rect(screen, (80, 96, 116), paper_rect, 1, border_radius=8)
+        silhouette = self.font.render("Paper Doll", True, (120, 130, 145))
+        screen.blit(silhouette, (paper_rect.centerx - silhouette.get_width() // 2, paper_rect.y + 8))
 
-        buffs_y = items_y + 10
-        if combatant.buffs:
-            screen.blit(self.font.render("Active buffs:", True, (210, 215, 220)), (panel_rect.x + 12, buffs_y))
-            buffs_y += 22
-            for buff in combatant.buffs:
-                desc = []
-                if buff.power:
-                    desc.append(f"P{buff.power}")
-                if buff.defense:
-                    desc.append(f"D{buff.defense}")
-                if buff.speed:
-                    desc.append(f"S{buff.speed}")
-                buff_line = self.font.render(
-                    f"• {buff.source.replace('_', ' ')} ({', '.join(desc)}) {buff.turns_remaining} turns",
-                    True,
-                    (190, 195, 205),
-                )
-                screen.blit(buff_line, (panel_rect.x + 18, buffs_y))
-                buffs_y += 18
+        center_x = paper_rect.centerx - slot_size // 2
+        equip_positions = {
+            "helm": (center_x, paper_rect.y + 32),
+            "armor": (center_x, paper_rect.y + 110),
+            "back": (center_x, paper_rect.y + 188),
+            "mainhand": (paper_rect.x + 20, paper_rect.y + 110),
+            "offhand": (paper_rect.right - slot_size - 20, paper_rect.y + 110),
+        }
+
+        dragging_item = self.dragging_slot.item if self.dragging_slot else None
+        for slot_name, pos in equip_positions.items():
+            rect = pygame.Rect(pos[0], pos[1], slot_size, slot_size)
+            item = combatant.equipped.get(slot_name)
+            highlight = rect.collidepoint(self.mouse_pos)
+            pygame.draw.rect(screen, (36, 42, 54), rect, border_radius=8)
+            pygame.draw.rect(screen, (110, 124, 140), rect, 1, border_radius=8)
+            label = self.font.render(slot_name.title(), True, (130, 140, 150))
+            screen.blit(label, (rect.centerx - label.get_width() // 2, rect.bottom + 2))
+            self.equip_slots.append(ItemSlot(rect, item, slot_name, "equip"))
+            if item and item is not dragging_item:
+                self._draw_item_icon(screen, item, rect, highlight=highlight)
+            elif not item:
+                empty = self.font.render("Empty", True, (90, 100, 115))
+                screen.blit(empty, (rect.centerx - empty.get_width() // 2, rect.centery - 10))
+
+        pack_origin_x = paper_rect.right + 18
+        pack_origin_y = panel_rect.y + 110
+        cols = 5
+        rows = max(3, (len(combatant.inventory) + cols - 1) // cols)
+        capacity_note = self.font.render(
+            f"Pack {len(combatant.inventory)}/{combatant.capacity()} (Shift to compare)", True, (190, 200, 210)
+        )
+        screen.blit(capacity_note, (pack_origin_x, paper_rect.y - 22))
+
+        for idx in range(rows * cols):
+            row = idx // cols
+            col = idx % cols
+            rect = pygame.Rect(
+                pack_origin_x + col * (slot_size + spacing),
+                pack_origin_y + row * (slot_size + spacing),
+                slot_size,
+                slot_size,
+            )
+            item = combatant.inventory[idx] if idx < len(combatant.inventory) else None
+            highlight = rect.collidepoint(self.mouse_pos)
+            pygame.draw.rect(screen, (32, 36, 44), rect, border_radius=6)
+            pygame.draw.rect(screen, (70, 78, 92), rect, 1, border_radius=6)
+            slot = ItemSlot(rect, item, None, "pack")
+            self.pack_slots.append(slot)
+            if item and item is not dragging_item:
+                self._draw_item_icon(screen, item, rect, highlight=highlight)
+
+        sell_rect = pygame.Rect(pack_origin_x, panel_rect.bottom - 68, 140, 52)
+        drop_rect = pygame.Rect(sell_rect.right + 12, panel_rect.bottom - 68, 140, 52)
+        action_style = pygame.Color(64, 78, 92)
+        pygame.draw.rect(screen, action_style, sell_rect, border_radius=8)
+        pygame.draw.rect(screen, (150, 180, 205), sell_rect, 2, border_radius=8)
+        sell_label = self.font.render("Sell to Camp", True, (215, 225, 235))
+        screen.blit(sell_label, (sell_rect.x + 12, sell_rect.y + 16))
+        pygame.draw.rect(screen, action_style, drop_rect, border_radius=8)
+        pygame.draw.rect(screen, (200, 150, 150), drop_rect, 2, border_radius=8)
+        drop_label = self.font.render("Drop on Ground", True, (235, 225, 225))
+        screen.blit(drop_label, (drop_rect.x + 8, drop_rect.y + 16))
+        self.action_slots.append(ItemSlot(sell_rect, None, None, "sell"))
+        self.action_slots.append(ItemSlot(drop_rect, None, None, "drop"))
+
+        self.hovered_slot = self._slot_for_position(self.mouse_pos)
+        if self.hovered_slot and self.hovered_slot.item:
+            self._render_item_tooltip(screen)
+
+        if dragging_item:
+            drag_rect = pygame.Rect(
+                self.mouse_pos[0] - self.drag_offset[0],
+                self.mouse_pos[1] - self.drag_offset[1],
+                slot_size,
+                slot_size,
+            )
+            self._draw_item_icon(screen, dragging_item, drag_rect, highlight=True)
 
     def _transition_zone(self, direction: str) -> None:
         current = self.context.zones.active_zone
@@ -612,16 +807,22 @@ class PygameMMO:
         screen.blit(res_text, (x, y))
         gcd_text = self.font.render(f"GCD: {combatant.gcd_remaining} turn(s)", True, (180, 190, 205))
         screen.blit(gcd_text, (x, y + 18))
+        stat_line = self.font.render(
+            f"STR {combatant.strength} | AGI {combatant.agility} | MAS {combatant.mastery}",
+            True,
+            (180, 195, 210),
+        )
+        screen.blit(stat_line, (x, y + 36))
         ability_defs = []
         for name, definition in self.context.bundle.abilities.definitions().items():
             if definition.get("class_name") == combatant.class_name:
                 ability_defs.append(name)
         ability_label = self.font.render("Hotbar:", True, (210, 220, 235))
-        screen.blit(ability_label, (x, y + 40))
+        screen.blit(ability_label, (x, y + 56))
         for idx, ability in enumerate(ability_defs[:5]):
             cd = combatant.cooldowns.get(ability, 0)
             entry = self.font.render(f"{idx+1}. {ability.replace('_', ' ')} (CD {cd})", True, (195, 200, 210))
-            screen.blit(entry, (x + 12, y + 60 + idx * 18))
+            screen.blit(entry, (x + 12, y + 76 + idx * 18))
 
     def _render(self, screen: pygame.Surface) -> None:
         screen.fill(BACKGROUND)
@@ -662,7 +863,8 @@ class PygameMMO:
             prompts.extend(tutorial_prompts)
         else:
             prompts.append("Press H to re-open control hints.")
-        prompts.append("Press I to toggle your inventory.")
+        prompts.append("Press I to toggle your inventory. Drag items to equip, sell, or drop.")
+        prompts.append("Click monsters to attack when you're in range.")
 
         if status == "available":
             prompts.append("Press E near the Guide to accept the quest.")
@@ -749,6 +951,18 @@ class PygameMMO:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
+                if event.type == pygame.MOUSEMOTION:
+                    self.mouse_pos = event.pos
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    self.mouse_pos = event.pos
+                    if event.button == 1:
+                        if self.show_inventory and self._start_drag(event.pos):
+                            continue
+                        self._handle_attack_click(event.pos)
+                if event.type == pygame.MOUSEBUTTONUP:
+                    self.mouse_pos = event.pos
+                    if event.button == 1 and self.dragging_slot:
+                        self._complete_drag(event.pos)
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_SPACE:
                         self._attempt_attack()
