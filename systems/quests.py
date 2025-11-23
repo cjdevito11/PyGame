@@ -17,7 +17,10 @@ class QuestRecord:
     trigger_event: str
     owner: str | None = None
     reward_gold: int = 0
+    reward_experience: int = 0
     status: str = "new"
+    progress: int = 0
+    goal_count: int = 1
 
 
 class QuestSystem:
@@ -36,6 +39,8 @@ class QuestSystem:
         trigger_event: str,
         owner: str | None = None,
         reward_gold: int = 0,
+        reward_experience: int = 0,
+        goal_count: int = 1,
         condition: Callable[[Event], bool] | None = None,
     ) -> None:
         record = QuestRecord(
@@ -44,6 +49,8 @@ class QuestSystem:
             trigger_event=trigger_event,
             owner=owner,
             reward_gold=reward_gold,
+            reward_experience=reward_experience,
+            goal_count=goal_count,
         )
         self.quests[identifier] = record
         self.bus.subscribe(trigger_event, lambda event: self._handle_trigger(record, event, condition))
@@ -64,19 +71,32 @@ class QuestSystem:
         if condition and not condition(event):
             return quest
 
-        quest.status = "completed"
-        self.bus.publish(
-            "quest.completed",
-            quest=quest.identifier,
-            owner=quest.owner,
-            reward_gold=quest.reward_gold,
-        )
-        log_with_fields(
-            self.logger,
-            logging.INFO,
-            "Quest completed",
-            identifier=quest.identifier,
-            owner=quest.owner or "<none>",
-            reward=quest.reward_gold,
-        )
+        quest.progress += 1
+        if quest.progress >= quest.goal_count:
+            quest.status = "completed"
+            quest.owner = quest.owner or event.payload.get("attacker")
+            self.bus.publish(
+                "quest.completed",
+                quest=quest.identifier,
+                owner=quest.owner,
+                reward_gold=quest.reward_gold,
+                reward_experience=quest.reward_experience,
+            )
+            log_with_fields(
+                self.logger,
+                logging.INFO,
+                "Quest completed",
+                identifier=quest.identifier,
+                owner=quest.owner or "<none>",
+                reward=quest.reward_gold,
+            )
+        else:
+            log_with_fields(
+                self.logger,
+                logging.INFO,
+                "Quest advanced",
+                identifier=quest.identifier,
+                progress=quest.progress,
+                goal=quest.goal_count,
+            )
         return quest

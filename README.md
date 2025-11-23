@@ -14,14 +14,24 @@ A small Pygame prototype that shows how to wire data-driven game content using s
 
 ## Getting started
 
-Install dependencies and try the real-time Pygame prototype:
+Install dependencies and start the real-time Pygame prototype:
 
 ```bash
 python -m pip install -r requirements.txt
 
-# Real-time prototype (WASD/arrow keys to move, Space to attack)
+# Launch the game client (choose a hero, WASD/arrow keys to move, Space to attack)
 python -m ui.game
 ```
+
+If you prefer, you can also run the file directly: `python ui/game.py`. Either
+entry point will load the bundled sample data and open the windowed client.
+
+### What to expect in the current adventure
+
+- Start at the character select menu and choose between Aria (balanced blade/shield) or Ronan (ranged hunter). Use left/right to swap between multiple hair, eye, and outfit palettes for the highlighted hero.
+- Your first quest is to drive off the wolf pack harassing town—chase down three wolves to finish it and unlock the victory screen.
+- Defeating enemies grants experience and gold; completing quests can also reward experience and return you to hero select so you can try a new build. Experience ramps up exponentially, so it takes several victories to reach each new level.
+- Levels increase max HP and make attacks stronger. Loot such as the wolf pelt can boost your damage for the rest of the run.
 
 To add new content, drop another entry into the matching file in `data/`. The schemas keep you honest and will show friendly messages if something is missing.
 

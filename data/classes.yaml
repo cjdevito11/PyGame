@@ -6,3 +6,19 @@
   description: Weak body but powerful spells.
   hit_points: 8
   mana: 15
+- name: ranger
+  description: Nimble explorer who excels at ranged attacks.
+  hit_points: 11
+  mana: 9
+- name: guardian
+  description: Heavy frontliner that shrugs off early blows.
+  hit_points: 16
+  mana: 4
+- name: beast
+  description: Wild creature relying on claws and fangs.
+  hit_points: 9
+  mana: 0
+- name: alpha_beast
+  description: Hardened pack leader with scarred hide.
+  hit_points: 14
+  mana: 0

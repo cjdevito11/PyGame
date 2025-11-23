@@ -72,6 +72,8 @@ if importlib.util.find_spec("pygame") is None:
         QUIT="QUIT",
         KEYDOWN="KEYDOWN",
         K_SPACE="SPACE",
+        K_RETURN="RETURN",
+        K_KP_ENTER="ENTER",
         K_a="A",
         K_d="D",
         K_w="W",
@@ -94,7 +96,7 @@ if importlib.util.find_spec("pygame") is None:
 
 
 from ui.context import build_context
-from ui.game import DEFAULT_ENEMY_NAME, PLAYER_NAME, PygameMMO
+from ui.game import DEFAULT_ENEMY_NAME, PygameMMO
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -102,20 +104,20 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 class GameSetupTest(unittest.TestCase):
     def test_spawn_actors_from_data(self) -> None:
         context = build_context(DATA_DIR)
-        game = PygameMMO(context)
+        game = PygameMMO(context, player_name="Aria")
 
-        self.assertIn(PLAYER_NAME, game.actors)
+        self.assertIn("Aria", game.actors)
         self.assertIn(DEFAULT_ENEMY_NAME, game.actors)
 
-        player_rect = game.actors[PLAYER_NAME].rect
+        player_rect = game.actors["Aria"].rect
         self.assertGreater(player_rect.width, 0)
         self.assertGreater(player_rect.height, 0)
 
     def test_attack_event_reduces_enemy_health(self) -> None:
         context = build_context(DATA_DIR)
-        game = PygameMMO(context)
+        game = PygameMMO(context, player_name="Aria")
 
-        player = game.actors[PLAYER_NAME]
+        player = game.actors["Aria"]
         target = game.actors[DEFAULT_ENEMY_NAME]
         player.rect.topleft = target.rect.topleft
 
@@ -124,6 +126,24 @@ class GameSetupTest(unittest.TestCase):
 
         self.assertLess(context.combat.characters[DEFAULT_ENEMY_NAME].hit_points, starting_hp)
         self.assertGreater(player._cooldown_timer, 0)
+
+    def test_can_start_from_menu_then_complete_encounter(self) -> None:
+        context = build_context(DATA_DIR)
+        game = PygameMMO(context)
+
+        self.assertEqual(game.state, "menu")
+        game._start_adventure()
+
+        self.assertEqual(game.state, "playing")
+        self.assertIn(game.player_name, game.actors)
+
+        # Simulate the wolf pack already defeated to confirm victory transition.
+        for name, combatant in list(context.combat.characters.items()):
+            if name != game.player_name:
+                combatant.hit_points = 0
+
+        game._handle_defeat()
+        self.assertEqual(game.state, "victory")
 
 
 if __name__ == "__main__":
