@@ -9,6 +9,7 @@ import logging
 
 from core.logging_config import get_logger, log_with_fields
 from systems import CombatSystem, EconomySystem, EventBus, QuestSystem, RegistryBundle
+from world.zones import ZoneManager
 
 
 logger = get_logger(__name__)
@@ -21,6 +22,7 @@ class GameContext:
     combat: CombatSystem
     quests: QuestSystem
     economy: EconomySystem
+    zones: ZoneManager
 
 
 def build_context(data_path: Path) -> GameContext:
@@ -53,5 +55,8 @@ def build_context(data_path: Path) -> GameContext:
             reward_gold=4,
             condition=lambda event: event.payload.get("defender") == "Shade",
         )
+    zones = ZoneManager([bundle.zones.create(name) for name in bundle.zones.entries()])
+    if "camp" in bundle.zones.entries():
+        zones.set_active("camp")
     log_with_fields(logger, logging.INFO, "Context ready", characters=list(combat.characters))
-    return GameContext(bundle=bundle, bus=bus, combat=combat, quests=quests, economy=economy)
+    return GameContext(bundle=bundle, bus=bus, combat=combat, quests=quests, economy=economy, zones=zones)

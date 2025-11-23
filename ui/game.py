@@ -101,7 +101,9 @@ class PygameMMO:
         if keys[pygame.K_s] or keys[pygame.K_DOWN]:
             dy += player.speed * dt
 
-        player.move(dx, dy, SCREEN_SIZE)
+        zone_bounds = self.context.zones.active_zone.bounds if self.context.zones.active_zone else None
+        limit = (zone_bounds.width, zone_bounds.height) if zone_bounds else SCREEN_SIZE
+        player.move(dx, dy, limit)
 
     def _attempt_attack(self) -> None:
         player = self.actors.get(PLAYER_NAME)
@@ -192,6 +194,13 @@ class PygameMMO:
         for idx, entry in enumerate(self.quest_log[-4:]):
             log_line = self.font.render(f"• {entry}", True, (210, 210, 210))
             screen.blit(log_line, (16, SCREEN_SIZE[1] - 96 + idx * 20))
+
+        if self.context.zones.active_zone:
+            zone = self.context.zones.active_zone
+            zone_text = self.font.render(
+                f"Zone: {zone.name} (danger: {zone.danger_level})", True, (170, 170, 170)
+            )
+            screen.blit(zone_text, (16, 44))
 
         pygame.display.flip()
 

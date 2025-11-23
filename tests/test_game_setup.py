@@ -111,6 +111,8 @@ class GameSetupTest(unittest.TestCase):
         game.bus.publish("quest.accepted", quest="defeat-shade", owner=PLAYER_NAME)
         game._maybe_spawn_target()
         self.assertIn(DEFAULT_ENEMY_NAME, game.actors)
+        self.assertIsNotNone(context.zones.active_zone)
+        self.assertEqual(context.zones.active_zone.name, "camp")
 
         player_rect = game.actors[PLAYER_NAME].rect
         self.assertGreater(player_rect.width, 0)

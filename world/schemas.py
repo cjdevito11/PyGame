@@ -30,3 +30,23 @@ class CharacterDefinition(BaseDefinition):
     appearance: str = Field(..., description="Appearance to display")
     items: list[str] = Field(default=[])
     gold: int = Field(default=0, ge=0)
+
+
+class BoundsDefinition(BaseModel):
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+class SpawnRuleDefinition(BaseModel):
+    spawn: str
+    weight: int = Field(..., ge=1)
+    max_count: int | None = Field(default=None, ge=1)
+
+
+class ZoneDefinition(BaseDefinition):
+    bounds: BoundsDefinition
+    danger_level: str
+    spawn_rules: list[SpawnRuleDefinition] = Field(default_factory=list)
+    is_static: bool = Field(default=True)
