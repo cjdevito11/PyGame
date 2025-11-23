@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from random import Random
 from typing import Dict, Tuple
 
 import pygame
@@ -172,6 +174,7 @@ class PygameMMO:
         self.zone_prompt = f"{zone.name.title()}: {zone.description}"
         bounds = self._zone_rect(zone) or pygame.Rect((0, 0), SCREEN_SIZE)
         obstacles = self._zone_obstacles(zone)
+        rng = Random(f"{zone.name}-{zone.danger_level}")
 
         entry_rect = self._entry_position_for_zone(player, zone, direction)
         clamped_x = max(bounds.x, min(bounds.x + bounds.width - entry_rect.width, entry_rect.x))
@@ -179,6 +182,7 @@ class PygameMMO:
         entry_rect.x, entry_rect.y = clamped_x, clamped_y
         player.rect = self._resolve_obstacle_collision(player.rect, entry_rect, obstacles, bounds)
 
+        self.target_spawned = False
         if zone.is_static:
             guide_color = pygame.Color(214, 185, 110)
             guide_rect = pygame.Rect((player.rect.x + 120, player.rect.y - 20), (54, 54))
@@ -188,9 +192,9 @@ class PygameMMO:
                 rect=self._resolve_obstacle_collision(player.rect, guide_rect, obstacles, bounds),
                 speed=0,
             )
-        else:
-            self.target_spawned = False
-            self._maybe_spawn_target()
+
+        self._seed_zone_spawns(zone, bounds, obstacles, rng)
+        self._maybe_spawn_target()
 
     def _handle_input(self, dt: float) -> None:
         keys = pygame.key.get_pressed()
@@ -262,7 +266,12 @@ class PygameMMO:
             self.quest_log.append("Quest turned in: The Guide rewards your effort.")
 
     def _maybe_spawn_target(self) -> None:
-        if self.target_spawned or self._quest_status() != "accepted":
+        zone = self.context.zones.active_zone
+        if (
+            self.target_spawned
+            or self._quest_status() != "accepted"
+            or not self._zone_allows_target(zone)
+        ):
             return
 
         definitions = self.context.bundle.characters.definitions()
@@ -284,6 +293,102 @@ class PygameMMO:
         )
         self.target_spawned = True
         self.quest_log.append("Shade has appeared beyond the campfire.")
+
+    def _zone_allows_target(self, zone: Zone | None) -> bool:
+        if not zone:
+            return False
+        return (not zone.is_static) and zone.danger_level not in {"none", "low"}
+
+    def _seed_zone_spawns(
+        self, zone: Zone, bounds: pygame.Rect, obstacles: list[pygame.Rect], rng: Random
+    ) -> None:
+        if not zone.spawn_rules:
+            return
+
+        spawn_rolls = self._roll_zone_spawns(zone, rng)
+        for spawn_name, count in spawn_rolls.items():
+            for _ in range(count):
+                rect = self._random_spawn_location(bounds, obstacles, rng)
+                rect = self._resolve_obstacle_collision(rect, rect, obstacles, bounds)
+                actor_name = self._unique_actor_name(spawn_name)
+                self.actors[actor_name] = Actor(
+                    name=actor_name,
+                    color=self._color_for_spawn(spawn_name),
+                    rect=rect,
+                    speed=0 if zone.is_static else 180,
+                )
+
+    def _roll_zone_spawns(self, zone: Zone, rng: Random) -> Dict[str, int]:
+        if not zone.spawn_rules:
+            return {}
+
+        baseline = 3 if zone.danger_level in {"none", "low"} else 5
+        max_slots = 6 if zone.danger_level in {"none", "low"} else 9
+        slots = rng.randint(baseline, max_slots)
+
+        available: Dict[str, int | None] = {rule.spawn: rule.max_count for rule in zone.spawn_rules}
+        weights = [(rule.spawn, rule.weight) for rule in zone.spawn_rules]
+        chosen: dict[str, int] = defaultdict(int)
+
+        for _ in range(slots):
+            pool = [
+                (spawn, weight)
+                for spawn, weight in weights
+                if available[spawn] is None or chosen[spawn] < available[spawn]
+            ]
+            if not pool:
+                break
+            options, pool_weights = zip(*pool)
+            selection = rng.choices(options, weights=pool_weights, k=1)[0]
+            chosen[selection] += 1
+
+        return dict(chosen)
+
+    def _color_for_spawn(self, spawn: str) -> pygame.Color:
+        palette: Dict[str, Tuple[int, int, int]] = {
+            "vendor": (185, 155, 110),
+            "campfire": (215, 115, 80),
+            "villager": (110, 160, 210),
+            "guard": (120, 140, 190),
+            "trader": (160, 170, 105),
+            "wolf": (140, 140, 140),
+            "boar": (170, 120, 90),
+            "bandit": (200, 95, 95),
+            "herb": (90, 170, 110),
+            "gryphon": (190, 190, 140),
+            "goat": (210, 210, 210),
+            "ore-node": (110, 110, 130),
+            "slime": (90, 200, 180),
+            "mosquito": (190, 60, 90),
+            "shrub": (70, 120, 80),
+        }
+        return pygame.Color(palette.get(spawn, (150, 150, 160)))
+
+    def _random_spawn_location(
+        self, bounds: pygame.Rect, obstacles: list[pygame.Rect], rng: Random
+    ) -> pygame.Rect:
+        margin = 28
+        size = (48, 48)
+        attempts = 20
+        for _ in range(attempts):
+            x = rng.randint(bounds.x + margin, max(bounds.x + margin, bounds.x + bounds.width - size[0] - margin))
+            y = rng.randint(bounds.y + margin, max(bounds.y + margin, bounds.y + bounds.height - size[1] - margin))
+            rect = pygame.Rect((x, y), size)
+            if rect.collidelist(obstacles) == -1 and all(
+                not rect.colliderect(actor.rect.inflate(6, 6)) for actor in self.actors.values()
+            ):
+                return rect
+        return pygame.Rect((bounds.x + margin, bounds.y + margin), size)
+
+    def _unique_actor_name(self, base: str) -> str:
+        if base not in self.actors:
+            return base
+        counter = 2
+        candidate = f"{base}-{counter}"
+        while candidate in self.actors:
+            counter += 1
+            candidate = f"{base}-{counter}"
+        return candidate
 
     def _transition_zone(self, direction: str) -> None:
         current = self.context.zones.active_zone

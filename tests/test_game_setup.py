@@ -109,10 +109,14 @@ class GameSetupTest(unittest.TestCase):
         self.assertNotIn(DEFAULT_ENEMY_NAME, game.actors)
 
         game.bus.publish("quest.accepted", quest="defeat-shade", owner=PLAYER_NAME)
+        game._transition_zone("east")
+        danger_zone = game.context.zones.active_zone
+        assert danger_zone is not None
+        danger_zone.danger_level = "high"
         game._maybe_spawn_target()
         self.assertIn(DEFAULT_ENEMY_NAME, game.actors)
         self.assertIsNotNone(context.zones.active_zone)
-        self.assertEqual(context.zones.active_zone.name, "town")
+        self.assertFalse(context.zones.active_zone.is_static)
 
         player_rect = game.actors[PLAYER_NAME].rect
         self.assertGreater(player_rect.width, 0)
@@ -124,6 +128,10 @@ class GameSetupTest(unittest.TestCase):
 
         player = game.actors[PLAYER_NAME]
         game.bus.publish("quest.accepted", quest="defeat-shade", owner=PLAYER_NAME)
+        game._transition_zone("east")
+        danger_zone = game.context.zones.active_zone
+        assert danger_zone is not None
+        danger_zone.danger_level = "high"
         game._maybe_spawn_target()
         target = game.actors[DEFAULT_ENEMY_NAME]
         player.rect.topleft = target.rect.topleft
