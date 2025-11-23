@@ -141,7 +141,7 @@ class PygameMMO:
         screen.blit(prompt, (SCREEN_SIZE[0] // 2 - prompt.get_width() // 2, 360))
         pygame.display.flip()
 
-    def _render(self, screen: pygame.Surface) -> None:
+    def _render_playing(self, screen: pygame.Surface) -> None:
         screen.fill(BACKGROUND)
         assert self.font is not None
 
@@ -180,6 +180,22 @@ class PygameMMO:
 
         pygame.display.flip()
 
+    def _render_victory(self, screen: pygame.Surface) -> None:
+        assert self.font is not None
+        screen.fill(BACKGROUND)
+
+        banner = self.font.render("Pinefall is safe — quest complete!", True, (236, 240, 241))
+        prompt = self.font.render("Press Enter to return to hero select or close the window.", True, (200, 200, 200))
+
+        screen.blit(banner, (SCREEN_SIZE[0] // 2 - banner.get_width() // 2, SCREEN_SIZE[1] // 2 - 40))
+        screen.blit(prompt, (SCREEN_SIZE[0] // 2 - prompt.get_width() // 2, SCREEN_SIZE[1] // 2 + 8))
+
+        for i, message in enumerate(self.messages[-4:]):
+            text = self.font.render(message, True, (180, 180, 180))
+            screen.blit(text, (18, SCREEN_SIZE[1] - 30 * (len(self.messages[-4:]) - i)))
+
+        pygame.display.flip()
+
     def _handle_defeat(self) -> None:
         enemies_alive = any(
             combatant.hit_points > 0 and name != self.player_name
@@ -188,7 +204,7 @@ class PygameMMO:
         )
         if not enemies_alive:
             log_with_fields(logger, logging.INFO, "Encounter cleared")
-            self.running = False
+            self.state = "victory"
 
     def _record_defeat(self, event: object) -> None:
         if isinstance(event, object) and hasattr(event, "payload"):
@@ -203,6 +219,7 @@ class PygameMMO:
             reward_xp = getattr(event, "payload", {}).get("reward_experience", 0)
             owner = getattr(event, "payload", {}).get("owner")
             self.messages.append(f"Quest '{quest}' complete! +{reward_gold}g, +{reward_xp}xp to {owner}")
+            self.state = "victory"
 
     def _record_experience(self, event: object) -> None:
         if isinstance(event, object) and hasattr(event, "payload"):
@@ -216,6 +233,7 @@ class PygameMMO:
             self.player_name = options[self.selection_index % len(options)]
         self.actors = self._spawn_actors()
         self.state = "playing"
+        self.messages.clear()
 
     def run(self) -> None:
         pygame.init()
@@ -238,15 +256,24 @@ class PygameMMO:
                         self._start_adventure()
                 if self.state == "playing" and event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                     self._attempt_attack()
+                if self.state == "victory" and event.type == pygame.KEYDOWN and event.key in (
+                    pygame.K_RETURN,
+                    pygame.K_KP_ENTER,
+                ):
+                    self.state = "menu"
+                    self.selection_index = 0
+                    self.actors.clear()
 
             if self.state == "playing":
                 for actor in self.actors.values():
                     actor.update_cooldown(dt)
                 self._handle_input(dt)
                 self._handle_defeat()
-                self._render(screen)
-            else:
+                self._render_playing(screen)
+            elif self.state == "menu":
                 self._render_menu(screen)
+            else:
+                self._render_victory(screen)
 
         pygame.quit()
 

@@ -29,8 +29,8 @@ entry point will load the bundled sample data and open the windowed client.
 ### What to expect in the current adventure
 
 - Start at the character select menu and choose between Aria (balanced blade/shield) or Ronan (ranged hunter).
-- Your first quest is to drive off the wolf pack harassing town—chase down three wolves to finish it.
-- Defeating enemies grants experience and gold; completing quests can also reward experience.
+- Your first quest is to drive off the wolf pack harassing town—chase down three wolves to finish it and unlock the victory screen.
+- Defeating enemies grants experience and gold; completing quests can also reward experience and return you to hero select so you can try a new build.
 - Levels increase max HP and make attacks stronger. Loot such as the wolf pelt can boost your damage for the rest of the run.
 
 To add new content, drop another entry into the matching file in `data/`. The schemas keep you honest and will show friendly messages if something is missing.

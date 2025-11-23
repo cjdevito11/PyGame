@@ -127,6 +127,24 @@ class GameSetupTest(unittest.TestCase):
         self.assertLess(context.combat.characters[DEFAULT_ENEMY_NAME].hit_points, starting_hp)
         self.assertGreater(player._cooldown_timer, 0)
 
+    def test_can_start_from_menu_then_complete_encounter(self) -> None:
+        context = build_context(DATA_DIR)
+        game = PygameMMO(context)
+
+        self.assertEqual(game.state, "menu")
+        game._start_adventure()
+
+        self.assertEqual(game.state, "playing")
+        self.assertIn(game.player_name, game.actors)
+
+        # Simulate the wolf pack already defeated to confirm victory transition.
+        for name, combatant in list(context.combat.characters.items()):
+            if name != game.player_name:
+                combatant.hit_points = 0
+
+        game._handle_defeat()
+        self.assertEqual(game.state, "victory")
+
 
 if __name__ == "__main__":
     unittest.main()
