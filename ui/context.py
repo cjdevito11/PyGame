@@ -100,6 +100,8 @@ def build_context(data_path: Path) -> GameContext:
                 condition=condition,
                 target_monsters=entry.get("target_monsters"),
                 loot_queue=entry.get("loot_queue"),
+                prerequisites=entry.get("prerequisites"),
+                stages=entry.get("stages"),
             )
     elif "Aria" in combat.characters and "Shade" in combat.characters:
         quests.register_quest(
