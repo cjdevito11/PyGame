@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
-from typing import Callable, Dict, Sequence, Tuple
+from typing import Callable, Dict, Optional, Sequence, Tuple
 
 import pygame
 
@@ -221,7 +221,7 @@ class PygameMMO:
         self.tilemaps: dict[str, dict] = {}
         self.tile_atlas: dict[str, pygame.Surface] = {}
         self.tile_surface_cache: dict[tuple[str, int], pygame.Surface] = {}
-        self.camera_position: Tuple[float, float] = (0.0, 0.0)
+        self.camera_position: Optional[Tuple[float, float]] = None
         self.actors: Dict[str, Actor] = self._spawn_start_area()
         self.sprite_library: dict[str, SpriteSheet] = {}
         self.item_sprite_layers: dict[str, SpriteSheet] = {}
@@ -229,7 +229,7 @@ class PygameMMO:
         self.tilemaps: dict[str, dict] = {}
         self.tile_atlas: dict[str, pygame.Surface] = {}
         self.tile_surface_cache: dict[tuple[str, int], pygame.Surface] = {}
-        self.camera_position: Tuple[float, float] = (0.0, 0.0)
+        self.camera_position: Optional[Tuple[float, float]] = None
         self.tutorial = TutorialManager()
         self.show_inventory = False
         self.show_menu_panel = False
@@ -574,16 +574,28 @@ class PygameMMO:
         player = self.actors.get(PLAYER_NAME)
         if not bounds or not player:
             self.render_offset = self._zone_render_offset(zone)
+            self.camera_position = None
             return
 
         half_w = self.screen_size[0] // 2
         half_h = self.screen_size[1] // 2
-        cam_x = player.rect.centerx - half_w
-        cam_y = player.rect.centery - half_h
+        target_x = player.rect.centerx - half_w
+        target_y = player.rect.centery - half_h
+        target_x = max(bounds.x, min(bounds.x + bounds.width - self.screen_size[0], target_x))
+        target_y = max(bounds.y, min(bounds.y + bounds.height - self.screen_size[1], target_y))
+
+        if self.camera_position is None:
+            cam_x, cam_y = float(target_x), float(target_y)
+        else:
+            cam_x, cam_y = self.camera_position
+            smoothing = 0.12
+            cam_x += (target_x - cam_x) * smoothing
+            cam_y += (target_y - cam_y) * smoothing
+
         cam_x = max(bounds.x, min(bounds.x + bounds.width - self.screen_size[0], cam_x))
         cam_y = max(bounds.y, min(bounds.y + bounds.height - self.screen_size[1], cam_y))
         self.camera_position = (cam_x, cam_y)
-        self.render_offset = (-cam_x, -cam_y)
+        self.render_offset = (-int(cam_x), -int(cam_y))
 
     def _zone_obstacles(self, zone: Zone | None) -> list[pygame.Rect]:
         if not zone:
@@ -648,10 +660,20 @@ class PygameMMO:
     def _screen_point(self, point: tuple[float, float] | tuple[int, int]) -> tuple[int, int]:
         return (int(point[0] + self.render_offset[0]), int(point[1] + self.render_offset[1]))
 
-    def _entry_position_for_zone(self, player: Actor, zone: Zone, direction: str | None) -> pygame.Rect:
+    def _entry_position_for_zone(
+        self, player: Actor, zone: Zone, direction: str | None, entry_spawn: str | None
+    ) -> pygame.Rect:
         bounds = self._zone_rect(zone)
         assert bounds is not None
         margin = 24
+        if entry_spawn and entry_spawn in zone.spawn_points:
+            spawn = zone.spawn_points[entry_spawn]
+            return pygame.Rect((spawn.x, spawn.y), (player.rect.width, player.rect.height))
+
+        keyed_spawn = zone.spawn_points.get(f"entry_from_{direction}" if direction else "")
+        if keyed_spawn:
+            return pygame.Rect((keyed_spawn.x, keyed_spawn.y), (player.rect.width, player.rect.height))
+
         if direction == "west":
             x = bounds.x + bounds.width - player.rect.width - margin
             y = bounds.y + bounds.height // 2
@@ -666,7 +688,9 @@ class PygameMMO:
             y = bounds.y + margin
         return pygame.Rect((x, y), (player.rect.width, player.rect.height))
 
-    def _reset_zone_population(self, zone: Zone, direction: str | None = None) -> None:
+    def _reset_zone_population(
+        self, zone: Zone, direction: str | None = None, entry_spawn: str | None = None
+    ) -> None:
         player = self.actors.get(PLAYER_NAME)
         if not player:
             return
@@ -678,7 +702,7 @@ class PygameMMO:
         obstacles = self._zone_obstacles(zone)
         rng = Random(f"{zone.name}-{zone.danger_level}")
 
-        entry_rect = self._entry_position_for_zone(player, zone, direction)
+        entry_rect = self._entry_position_for_zone(player, zone, direction, entry_spawn)
         spawn_center = zone.get_spawn_point("player", (entry_rect.centerx, entry_rect.centery))
         entry_rect.center = spawn_center
         clamped_x = max(bounds.x, min(bounds.x + bounds.width - entry_rect.width, entry_rect.x))
@@ -686,6 +710,7 @@ class PygameMMO:
         entry_rect.x, entry_rect.y = clamped_x, clamped_y
         player.rect = self._resolve_obstacle_collision(player.rect, entry_rect, obstacles, bounds)
         player.rect = self._clamp_to_bounds(player.rect, bounds)
+        self.camera_position = None
 
         self.target_spawned = False
         if zone.is_static:
@@ -1784,15 +1809,26 @@ class PygameMMO:
         if not current:
             return
 
-        focus_spawn = self.target_name if self._target_quest() else None
-        if current.is_static:
-            next_zone = self.context.zones.spawn_outdoor_zone(focus_spawn=focus_spawn)
-        else:
-            destination = next(iter(self.context.zones.static_zones), None)
-            if destination:
-                next_zone = self.context.zones.set_active(destination)
-            else:
+        connection = current.connections.get(direction) if hasattr(current, "connections") else None
+        if connection:
+            try:
+                next_zone = self.context.zones.set_active(connection.zone)
+            except KeyError:
                 return
+            entry_direction = connection.entry_direction or self._opposite_direction(direction)
+            entry_spawn = connection.entry_spawn
+        else:
+            focus_spawn = self.target_name if self._target_quest() else None
+            if current.is_static:
+                next_zone = self.context.zones.spawn_outdoor_zone(focus_spawn=focus_spawn)
+            else:
+                destination = next(iter(self.context.zones.static_zones), None)
+                if destination:
+                    next_zone = self.context.zones.set_active(destination)
+                else:
+                    return
+            entry_direction = direction
+            entry_spawn = None
 
         self.bus.publish(
             "zone.changed",
@@ -1801,7 +1837,12 @@ class PygameMMO:
             direction=direction,
             danger=next_zone.danger_level,
         )
-        self._reset_zone_population(next_zone, direction)
+        self._reset_zone_population(next_zone, entry_direction, entry_spawn)
+
+    @staticmethod
+    def _opposite_direction(direction: str) -> str:
+        pairs = {"west": "east", "east": "west", "north": "south", "south": "north"}
+        return pairs.get(direction, direction)
 
     def _render_combat_overlay(self, screen: pygame.Surface, bar_height: int) -> None:
         combatant = self._player_combatant()
