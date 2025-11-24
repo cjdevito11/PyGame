@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
 from typing import Callable, Dict, Sequence, Tuple
@@ -53,7 +53,7 @@ class Actor:
     frame_index: int = 0
     frame_timer: float = 0.0
     animation_speed: float = 0.12
-    minimap_color: pygame.Color = pygame.Color(180, 185, 200)
+    minimap_color: pygame.Color = field(default_factory=lambda: pygame.Color(180, 185, 200))
 
     def move(self, dx: float, dy: float, bounds: Tuple[int, int]) -> None:
         self.rect.x = max(0, min(bounds[0] - self.rect.width, int(self.rect.x + dx)))
