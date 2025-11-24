@@ -1,12 +1,13 @@
 """Pygame-powered real-time prototype for the data-driven MMORPG skeleton."""
 from __future__ import annotations
 
+import json
 import logging
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, Sequence, Tuple
 
 import pygame
 
@@ -28,13 +29,31 @@ logger = get_logger(__name__)
 
 
 @dataclass
+class SpriteSheet:
+    """Lightweight holder for animation frames keyed by state and direction."""
+
+    frames: Dict[str, Dict[str, list[pygame.Surface]]]
+    base_color: pygame.Color
+
+    def sequence(self, state: str, direction: str) -> list[pygame.Surface]:
+        return self.frames.get(state, {}).get(direction, [])
+
+
+@dataclass
 class Actor:
     name: str
-    color: pygame.Color
     rect: pygame.Rect
     speed: float = 220.0
     attack_cooldown: float = 0.35
     _cooldown_timer: float = 0.0
+    sprite_sheet: SpriteSheet | None = None
+    sprite_name: str | None = None
+    current_state: str = "idle"
+    facing: str = "south"
+    frame_index: int = 0
+    frame_timer: float = 0.0
+    animation_speed: float = 0.12
+    minimap_color: pygame.Color = field(default_factory=lambda: pygame.Color(180, 185, 200))
 
     def move(self, dx: float, dy: float, bounds: Tuple[int, int]) -> None:
         self.rect.x = max(0, min(bounds[0] - self.rect.width, int(self.rect.x + dx)))
@@ -48,6 +67,53 @@ class Actor:
 
     def trigger_attack(self) -> None:
         self._cooldown_timer = self.attack_cooldown
+
+    def set_facing(self, dx: float, dy: float) -> None:
+        if abs(dx) > abs(dy):
+            self.facing = "east" if dx > 0 else "west"
+        elif dy != 0:
+            self.facing = "south" if dy > 0 else "north"
+
+    def play_attack(self) -> None:
+        self.current_state = "attack"
+        self.frame_index = 0
+        self.frame_timer = 0.0
+
+    def update_animation(self, dt: float, *, moving: bool = False) -> None:
+        next_state = "walk" if moving else "idle"
+        if self.current_state != "attack" and self.current_state != next_state:
+            self.current_state = next_state
+            self.frame_index = 0
+            self.frame_timer = 0.0
+
+        frames = self._frames_for_state(self.current_state)
+        self.frame_timer += dt
+        if not frames:
+            return
+
+        if self.current_state == "attack":
+            if self.frame_timer >= self.animation_speed:
+                self.frame_timer -= self.animation_speed
+                self.frame_index += 1
+                if self.frame_index >= len(frames):
+                    self.current_state = next_state
+                    self.frame_index = 0
+                    self.frame_timer = 0.0
+        else:
+            if self.frame_timer >= self.animation_speed:
+                self.frame_timer -= self.animation_speed
+                self.frame_index = (self.frame_index + 1) % len(frames)
+
+    def _frames_for_state(self, state: str) -> list[pygame.Surface]:
+        if not self.sprite_sheet:
+            return []
+        return self.sprite_sheet.sequence(state, self.facing)
+
+    def current_frame(self) -> pygame.Surface | None:
+        frames = self._frames_for_state(self.current_state)
+        if not frames:
+            return None
+        return frames[min(self.frame_index, len(frames) - 1)]
 
 
 @dataclass
@@ -149,6 +215,13 @@ class PygameMMO:
         self.target_defeated = False
         self.zone_prompt: str = ""
         self._apply_zone_settings(context.zones.active_zone)
+        self.sprite_library: dict[str, SpriteSheet] = {}
+        self.item_sprite_layers: dict[str, SpriteSheet] = {}
+        self.player_composite: SpriteSheet | None = None
+        self.tilemaps: dict[str, dict] = {}
+        self.tile_atlas: dict[str, pygame.Surface] = {}
+        self.tile_surface_cache: dict[tuple[str, int], pygame.Surface] = {}
+        self.camera_position: Tuple[float, float] = (0.0, 0.0)
         self.actors: Dict[str, Actor] = self._spawn_start_area()
         self.tutorial = TutorialManager()
         self.show_inventory = False
@@ -160,6 +233,7 @@ class PygameMMO:
         self.loot_banner: str | None = None
         self.loot_banner_timer: float = 0.0
         self.mouse_pos: Tuple[int, int] = (0, 0)
+        self.player_motion: Tuple[float, float] = (0.0, 0.0)
         self.pack_slots: list[ItemSlot] = []
         self.equip_slots: list[ItemSlot] = []
         self.action_slots: list[ItemSlot] = []
@@ -189,6 +263,226 @@ class PygameMMO:
         self.bus.subscribe("zone.changed", self._on_zone_changed)
         self.bus.subscribe("inventory.item_added", self._on_item_added)
         self.show_objective_indicator = True
+
+    def _initialize_render_assets(self) -> None:
+        """Load sprite sheets, tile art, and equipment overlays once Pygame is ready."""
+
+        self.tile_atlas = self._build_tile_atlas()
+        self.tilemaps = self._load_zone_tilemaps()
+        self.sprite_library = self._build_sprite_library()
+        self.item_sprite_layers = self._build_item_layers()
+        self._refresh_player_sprite_cache()
+        self._assign_actor_sprites()
+
+    def _build_tile_atlas(self) -> dict[str, pygame.Surface]:
+        def tile(color: Tuple[int, int, int], accent: Tuple[int, int, int] | None = None) -> pygame.Surface:
+            surf = pygame.Surface((40, 40), pygame.SRCALPHA)
+            surf.fill(color)
+            if accent:
+                pygame.draw.rect(surf, accent, pygame.Rect(4, 4, 32, 32), 2, border_radius=6)
+            return surf
+
+        atlas: dict[str, pygame.Surface] = {
+            "grass": tile((62, 104, 75), (86, 140, 103)),
+            "path": tile((124, 95, 70), (150, 121, 96)),
+            "flowers": tile((72, 112, 86)),
+            "campfire": tile((130, 70, 40), (255, 150, 80)),
+            "tent": tile((150, 136, 104), (190, 182, 140)),
+            "log": tile((112, 76, 50), (144, 108, 70)),
+            "hills": tile((38, 58, 72), (52, 82, 104)),
+            "trees": tile((40, 70, 52), (62, 110, 78)),
+            "cobble": tile((82, 84, 100), (110, 116, 132)),
+            "street": tile((110, 100, 96), (140, 124, 116)),
+            "market": tile((94, 71, 64), (175, 130, 90)),
+            "crate": tile((124, 92, 66), (164, 130, 104)),
+            "banner": tile((82, 24, 54), (162, 64, 94)),
+            "well": tile((68, 78, 105), (120, 138, 170)),
+            "tree": tile((54, 92, 62), (84, 132, 92)),
+            "wall": tile((58, 58, 74), (96, 98, 124)),
+            "roofline": tile((86, 52, 58), (150, 92, 102)),
+        }
+        return atlas
+
+    def _tile_surface(self, name: str, tile_size: int) -> pygame.Surface | None:
+        key = (name, tile_size)
+        if key in self.tile_surface_cache:
+            return self.tile_surface_cache[key]
+        base = self.tile_atlas.get(name)
+        if not base:
+            return None
+        if base.get_width() != tile_size or base.get_height() != tile_size:
+            base = pygame.transform.smoothscale(base, (tile_size, tile_size))
+        self.tile_surface_cache[key] = base
+        return base
+
+    def _prepare_tilemap(self, data: dict) -> dict:
+        width = int(data.get("width", 0))
+        height = int(data.get("height", 0))
+        base = data.get("base", "grass")
+        grid = [[base for _ in range(width)] for _ in range(height)]
+
+        for override in data.get("overrides", []):
+            tile_name = override.get("tile", base)
+            rect = override.get("rect", [0, 0, 0, 0])
+            ox, oy, ow, oh = rect
+            for y in range(oy, oy + oh):
+                for x in range(ox, ox + ow):
+                    if 0 <= x < width and 0 <= y < height:
+                        grid[y][x] = tile_name
+
+        data["ground_grid"] = grid
+        return data
+
+    def _load_zone_tilemaps(self) -> dict[str, dict]:
+        tilemap_dir = DEFAULT_DATA_PATH / "tilemaps"
+        if not tilemap_dir.exists():
+            return {}
+
+        loaded: dict[str, dict] = {}
+        for path in tilemap_dir.glob("*.json"):
+            try:
+                with path.open() as handle:
+                    data = json.load(handle)
+                loaded[path.stem] = self._prepare_tilemap(data)
+            except Exception as exc:  # pragma: no cover - defensive asset load
+                log_with_fields(logger, logging.WARNING, "Failed to load tilemap", file=str(path), error=str(exc))
+        return loaded
+
+    def _draw_character_frame(
+        self,
+        size: Tuple[int, int],
+        body: Sequence[int],
+        trim: Sequence[int],
+        accent: Sequence[int],
+        *,
+        direction: str,
+        motion_offset: int = 0,
+        attack: bool = False,
+    ) -> pygame.Surface:
+        surf = pygame.Surface(size, pygame.SRCALPHA)
+        base_rect = pygame.Rect(18 + motion_offset, 12 + abs(motion_offset), 22, 28)
+        if direction == "north":
+            base_rect.y += 4
+        if direction == "south":
+            base_rect.y -= 2
+        pygame.draw.rect(surf, body, base_rect, border_radius=6)
+        head = pygame.Rect(base_rect.x + 4, base_rect.y - 10, 14, 12)
+        pygame.draw.ellipse(surf, body, head)
+        pygame.draw.ellipse(surf, trim, head, 2)
+        if attack:
+            swing_rect = pygame.Rect(base_rect.right - 2, base_rect.y + 8, 12, 8)
+            if direction == "west":
+                swing_rect.x = base_rect.x - 12
+            pygame.draw.rect(surf, accent, swing_rect, border_radius=3)
+        else:
+            glint = pygame.Rect(base_rect.centerx - 3, base_rect.y + 6, 6, 6)
+            pygame.draw.rect(surf, accent, glint, border_radius=2)
+        boot = pygame.Rect(base_rect.x, base_rect.bottom - 4, base_rect.width, 6)
+        pygame.draw.rect(surf, trim, boot, border_radius=4)
+        return surf
+
+    def _sprite_sheet_from_palette(
+        self, base: Tuple[int, int, int], trim: Tuple[int, int, int], accent: Tuple[int, int, int]
+    ) -> SpriteSheet:
+        directions = ["south", "east", "north", "west"]
+        states = {state: {} for state in ("idle", "walk", "attack")}
+        for direction in directions:
+            states["idle"][direction] = [
+                self._draw_character_frame((58, 58), base, trim, accent, direction=direction),
+                self._draw_character_frame((58, 58), base, trim, accent, direction=direction, motion_offset=1),
+            ]
+            states["walk"][direction] = [
+                self._draw_character_frame((58, 58), base, trim, accent, direction=direction, motion_offset=-2),
+                self._draw_character_frame((58, 58), base, trim, accent, direction=direction, motion_offset=2),
+                self._draw_character_frame((58, 58), base, trim, accent, direction=direction, motion_offset=-3),
+            ]
+            states["attack"][direction] = [
+                self._draw_character_frame((58, 58), base, trim, accent, direction=direction, attack=True),
+                self._draw_character_frame((58, 58), base, trim, accent, direction=direction, motion_offset=3, attack=True),
+                self._draw_character_frame((58, 58), base, trim, accent, direction=direction, motion_offset=-3, attack=True),
+            ]
+        return SpriteSheet(states, pygame.Color(base))
+
+    def _build_sprite_library(self) -> dict[str, SpriteSheet]:
+        library = {
+            "player_base": self._sprite_sheet_from_palette((214, 193, 119), (132, 168, 196), (237, 245, 255)),
+            "guide": self._sprite_sheet_from_palette((214, 185, 110), (144, 104, 52), (255, 234, 180)),
+            "ghost": self._sprite_sheet_from_palette((130, 175, 220), (82, 124, 180), (190, 230, 255)),
+            "villager": self._sprite_sheet_from_palette((132, 160, 210), (92, 116, 144), (220, 230, 244)),
+            "guard": self._sprite_sheet_from_palette((120, 140, 190), (88, 118, 168), (218, 225, 240)),
+            "trader": self._sprite_sheet_from_palette((160, 170, 105), (118, 126, 82), (222, 230, 178)),
+            "wildling": self._sprite_sheet_from_palette((170, 120, 90), (122, 76, 56), (230, 200, 180)),
+            "elemental": self._sprite_sheet_from_palette((90, 200, 180), (40, 140, 120), (200, 245, 230)),
+        }
+        return library
+
+    def _build_item_layers(self) -> dict[str, SpriteSheet]:
+        layer_colors = {
+            "bronze_sword": ((200, 140, 90), (255, 215, 160), (255, 245, 220)),
+            "oak_shield": ((126, 94, 64), (166, 134, 90), (222, 200, 170)),
+            "leather_armor": ((116, 90, 70), (152, 120, 90), (220, 200, 160)),
+            "lantern": ((160, 150, 90), (255, 240, 150), (255, 255, 210)),
+        }
+
+        def layer_sheet(body: Tuple[int, int, int], trim: Tuple[int, int, int], accent: Tuple[int, int, int]) -> SpriteSheet:
+            frames: Dict[str, Dict[str, list[pygame.Surface]]] = {state: {} for state in ("idle", "walk", "attack")}
+            for direction in ("south", "east", "north", "west"):
+                base = self._draw_character_frame((58, 58), (0, 0, 0, 0), trim, accent, direction=direction)
+                armor = self._draw_character_frame(
+                    (58, 58), body, trim, accent, direction=direction, motion_offset=1
+                )
+                swing = self._draw_character_frame(
+                    (58, 58), body, trim, accent, direction=direction, motion_offset=2, attack=True
+                )
+                frames["idle"][direction] = [base]
+                frames["walk"][direction] = [base, armor, base]
+                frames["attack"][direction] = [armor, swing, armor]
+            return SpriteSheet(frames, pygame.Color(body))
+
+        layers = {name: layer_sheet(*colors) for name, colors in layer_colors.items()}
+        return layers
+
+    def _refresh_player_sprite_cache(self) -> None:
+        base_sheet = self.sprite_library.get("player_base")
+        if not base_sheet:
+            return
+
+        overlays: list[SpriteSheet] = []
+        combatant = self._player_combatant()
+        if combatant:
+            for item in combatant.equipped.values():
+                if item and item.name in self.item_sprite_layers:
+                    overlays.append(self.item_sprite_layers[item.name])
+
+        frames: Dict[str, Dict[str, list[pygame.Surface]]] = {}
+        for state, directions in base_sheet.frames.items():
+            frames[state] = {}
+            for direction, base_frames in directions.items():
+                composed: list[pygame.Surface] = []
+                for idx, frame in enumerate(base_frames):
+                    finished = frame.copy()
+                    for overlay in overlays:
+                        overlay_frames = overlay.frames.get(state, {}).get(direction) or overlay.frames.get("idle", {}).get(
+                            direction, []
+                        )
+                        if overlay_frames:
+                            finished.blit(overlay_frames[min(idx, len(overlay_frames) - 1)], (0, 0))
+                    composed.append(finished)
+                frames[state][direction] = composed
+        self.player_composite = SpriteSheet(frames, base_sheet.base_color)
+
+    def _assign_actor_sprites(self) -> None:
+        for actor in self.actors.values():
+            if actor.name == PLAYER_NAME:
+                actor.sprite_sheet = self.player_composite or self.sprite_library.get("player_base")
+                actor.minimap_color = (actor.sprite_sheet.base_color if actor.sprite_sheet else pygame.Color("yellow"))
+                continue
+
+            key = actor.sprite_name or actor.name
+            sprite = self.sprite_library.get(key) or self.sprite_library.get("villager")
+            actor.sprite_sheet = sprite
+            if sprite:
+                actor.minimap_color = sprite.base_color
 
     def _apply_zone_settings(self, zone: Zone | None) -> None:
         settings = self.context.zones.map_settings()
@@ -230,11 +524,11 @@ class PygameMMO:
         hero_rect = self._clamp_to_bounds(hero_rect, zone_rect)
         actors[PLAYER_NAME] = Actor(
             name=PLAYER_NAME,
-            color=pygame.Color(hero_appearance.color),
             rect=hero_rect,
+            sprite_name="player_base",
+            minimap_color=pygame.Color(hero_appearance.color),
         )
 
-        guide_color = pygame.Color(214, 185, 110)
         guide_rect = pygame.Rect((0, 0), (54, 54))
         guide_spawn = zone.get_spawn_point("quest_giver", zone_center) if zone else zone_center
         guide_rect.center = guide_spawn
@@ -242,9 +536,9 @@ class PygameMMO:
         guide_rect = self._clamp_to_bounds(guide_rect, zone_rect)
         actors[QUEST_GIVER_NAME] = Actor(
             name=QUEST_GIVER_NAME,
-            color=guide_color,
             rect=guide_rect,
             speed=0,
+            sprite_name="guide",
         )
         self.quest_log.append("Check in with the Guide near the fire for available work.")
         return actors
@@ -268,10 +562,46 @@ class PygameMMO:
         offset_y = max(margin - bounds.y, offset_y)
         return (offset_x, offset_y)
 
+    def _update_camera(self, zone: Zone | None) -> None:
+        bounds = self._zone_rect(zone)
+        player = self.actors.get(PLAYER_NAME)
+        if not bounds or not player:
+            self.render_offset = self._zone_render_offset(zone)
+            return
+
+        half_w = self.screen_size[0] // 2
+        half_h = self.screen_size[1] // 2
+        cam_x = player.rect.centerx - half_w
+        cam_y = player.rect.centery - half_h
+        cam_x = max(bounds.x, min(bounds.x + bounds.width - self.screen_size[0], cam_x))
+        cam_y = max(bounds.y, min(bounds.y + bounds.height - self.screen_size[1], cam_y))
+        self.camera_position = (cam_x, cam_y)
+        self.render_offset = (-cam_x, -cam_y)
+
     def _zone_obstacles(self, zone: Zone | None) -> list[pygame.Rect]:
         if not zone:
             return []
-        return [pygame.Rect((obs.x, obs.y), (obs.width, obs.height)) for obs in zone.obstacles]
+        tilemap = self.tilemaps.get(zone.name)
+        obstacles: list[pygame.Rect] = []
+        if tilemap:
+            tile_size = int(tilemap.get("tile_size", 40))
+            for entry in tilemap.get("collision", []):
+                rect = entry.get("rect", [0, 0, 0, 0])
+                ox, oy, ow, oh = rect
+                obstacles.append(
+                    pygame.Rect(
+                        zone.bounds.x + ox * tile_size,
+                        zone.bounds.y + oy * tile_size,
+                        ow * tile_size,
+                        oh * tile_size,
+                    )
+                )
+
+        if not obstacles:
+            obstacles = [pygame.Rect((obs.x, obs.y), (obs.width, obs.height)) for obs in zone.obstacles]
+        else:
+            obstacles.extend([pygame.Rect((obs.x, obs.y), (obs.width, obs.height)) for obs in zone.obstacles])
+        return obstacles
 
     def _resolve_obstacle_collision(
         self,
@@ -352,16 +682,15 @@ class PygameMMO:
 
         self.target_spawned = False
         if zone.is_static:
-            guide_color = pygame.Color(214, 185, 110)
             guide_rect = pygame.Rect((0, 0), (54, 54))
             guide_spawn = zone.get_spawn_point("quest_giver", bounds.center)
             guide_rect.center = guide_spawn
             resolved = self._resolve_obstacle_collision(player.rect, guide_rect, obstacles, bounds)
             self.actors[QUEST_GIVER_NAME] = Actor(
                 name=QUEST_GIVER_NAME,
-                color=guide_color,
                 rect=resolved,
                 speed=0,
+                sprite_name="guide",
             )
 
         self._seed_zone_spawns(zone, bounds, obstacles, rng)
@@ -382,6 +711,10 @@ class PygameMMO:
             dy -= player.speed * dt
         if keys[pygame.K_s] or keys[pygame.K_DOWN]:
             dy += player.speed * dt
+
+        moving = dx != 0.0 or dy != 0.0
+        if moving:
+            player.set_facing(dx, dy)
 
         active_zone = self.context.zones.active_zone
         try:
@@ -413,6 +746,12 @@ class PygameMMO:
             player.move(dx, dy, self.screen_size)
 
         self.tutorial.record_movement(dx, dy)
+        self.player_motion = (dx, dy)
+
+    def _update_actor_animations(self, dt: float) -> None:
+        for name, actor in self.actors.items():
+            moving = name == PLAYER_NAME and (self.player_motion[0] != 0.0 or self.player_motion[1] != 0.0)
+            actor.update_animation(dt, moving=moving)
 
     def _attempt_attack(self, target_name: str | None = None) -> bool:
         player = self.actors.get(PLAYER_NAME)
@@ -422,9 +761,13 @@ class PygameMMO:
             return False
 
         if player.rect.colliderect(target.rect.inflate(8, 8)):
+            diff_x = target.rect.centerx - player.rect.centerx
+            diff_y = target.rect.centery - player.rect.centery
+            player.set_facing(diff_x, diff_y)
             log_with_fields(logger, logging.INFO, "Real-time attack", attacker=player.name, defender=target.name)
             self.bus.publish("combat.attack", attacker=player.name, defender=target.name)
             player.trigger_attack()
+            player.play_attack()
             self.tutorial.record_attack()
             return True
         return False
@@ -639,6 +982,9 @@ class PygameMMO:
             target_y = pos[1] - self.drag_offset[1]
             self._place_item_in_pack(item, (target_x, target_y), slot_size, 6)
 
+        self._refresh_player_sprite_cache()
+        self._assign_actor_sprites()
+
         self.dragging_slot = None
 
     def _complete_skill_drag(self, pos: Tuple[int, int]) -> None:
@@ -702,8 +1048,9 @@ class PygameMMO:
             target_rect = self._clamp_to_bounds(target_rect, bounds)
             self.actors[self.target_name] = Actor(
                 name=self.target_name,
-                color=pygame.Color(appearance.color),
                 rect=target_rect,
+                sprite_name="ghost",
+                minimap_color=pygame.Color(appearance.color),
             )
             self.target_spawned = True
             self.quest_log.append(f"{self.target_name} has appeared beyond the campfire.")
@@ -735,9 +1082,10 @@ class PygameMMO:
                 actor_name = self._unique_actor_name(spawn_name)
                 self.actors[actor_name] = Actor(
                     name=actor_name,
-                    color=self._color_for_spawn(spawn_name),
                     rect=rect,
                     speed=0 if zone.is_static else 180,
+                    sprite_name=self._sprite_for_spawn(spawn_name),
+                    minimap_color=self._color_for_spawn(spawn_name),
                 )
 
     def _roll_zone_spawns(self, zone: Zone, rng: Random) -> Dict[str, int]:
@@ -765,6 +1113,26 @@ class PygameMMO:
             chosen[selection] += 1
 
         return dict(chosen)
+
+    def _sprite_for_spawn(self, spawn: str) -> str:
+        mapping = {
+            "vendor": "trader",
+            "campfire": "elemental",
+            "villager": "villager",
+            "guard": "guard",
+            "trader": "trader",
+            "wolf": "wildling",
+            "boar": "wildling",
+            "bandit": "villager",
+            "herb": "elemental",
+            "gryphon": "wildling",
+            "goat": "villager",
+            "ore-node": "elemental",
+            "slime": "elemental",
+            "mosquito": "elemental",
+            "shrub": "elemental",
+        }
+        return mapping.get(spawn, "villager")
 
     def _color_for_spawn(self, spawn: str) -> pygame.Color:
         palette: Dict[str, Tuple[int, int, int]] = {
@@ -2073,14 +2441,24 @@ class PygameMMO:
         self.interaction_hint = None
 
         zone = self.context.zones.active_zone
-        self.render_offset = self._zone_render_offset(zone)
+        self._update_camera(zone)
         if zone:
             self._render_zone(screen, zone)
             self._render_minimap(screen, zone)
 
-        for name, actor in self.actors.items():
-            pygame.draw.rect(screen, actor.color, self._screen_rect(actor.rect), border_radius=6)
-            # Keep the playfield free of floating text; lean on HUD panels instead.
+        draw_order = sorted(self.actors.values(), key=lambda actor: actor.rect.bottom)
+        for actor in draw_order:
+            frame = actor.current_frame()
+            position = self._screen_point(actor.rect.topleft)
+            if frame:
+                shadow = pygame.Surface((actor.rect.width, max(6, actor.rect.height // 6)), pygame.SRCALPHA)
+                shadow.fill((0, 0, 0, 80))
+                shadow_rect = shadow.get_rect()
+                shadow_rect.center = (position[0] + actor.rect.width // 2, position[1] + actor.rect.height - 4)
+                screen.blit(shadow, shadow_rect)
+                screen.blit(frame, position)
+            else:
+                pygame.draw.rect(screen, actor.minimap_color, self._screen_rect(actor.rect), border_radius=6)
 
         self._render_objective_indicator(screen)
         self._render_loot_banner(screen)
@@ -2109,14 +2487,83 @@ class PygameMMO:
         bounds = self._zone_rect(zone)
         if not bounds:
             return
-        screen_bounds = self._screen_rect(bounds)
-        pygame.draw.rect(screen, (28, 34, 46), screen_bounds, border_radius=12)
-        pygame.draw.rect(screen, self.zone_boundary_color, screen_bounds, width=5, border_radius=12)
+        tilemap = self.tilemaps.get(zone.name)
+        if tilemap:
+            self._render_parallax_layers(screen, tilemap)
+            self._render_tile_layers(screen, tilemap, zone)
+        else:
+            screen_bounds = self._screen_rect(bounds)
+            pygame.draw.rect(screen, (28, 34, 46), screen_bounds, border_radius=12)
+            pygame.draw.rect(screen, self.zone_boundary_color, screen_bounds, width=5, border_radius=12)
 
         for obstacle in self._zone_obstacles(zone):
             screen_obstacle = self._screen_rect(obstacle)
-            pygame.draw.rect(screen, self.obstacle_color, screen_obstacle, border_radius=6)
-            pygame.draw.rect(screen, (120, 140, 170), screen_obstacle, width=2, border_radius=6)
+            overlay = pygame.Surface((screen_obstacle.width, screen_obstacle.height), pygame.SRCALPHA)
+            overlay.fill((*self.obstacle_color, 110))
+            screen.blit(overlay, screen_obstacle)
+
+        screen_bounds = self._screen_rect(bounds)
+        pygame.draw.rect(screen, self.zone_boundary_color, screen_bounds, width=2, border_radius=12)
+
+    def _render_parallax_layers(self, screen: pygame.Surface, tilemap: dict) -> None:
+        layers = tilemap.get("parallax", [])
+        if not layers:
+            return
+
+        for layer in layers:
+            tile_name = layer.get("tile", "trees")
+            speed = float(layer.get("speed", 0.5))
+            offset = layer.get("offset", [0, 0])
+            tile_size = int(tilemap.get("tile_size", 40)) * 2
+            tile_surface = self._tile_surface(tile_name, tile_size)
+            if not tile_surface:
+                continue
+            start_x = -int(self.camera_position[0] * speed) + int(offset[0])
+            start_y = -int(self.camera_position[1] * speed) + int(offset[1])
+            tile_w, tile_h = tile_surface.get_size()
+            for x in range(start_x % tile_w - tile_w, self.screen_size[0] + tile_w, tile_w):
+                for y in range(start_y % tile_h - tile_h, self.screen_size[1] + tile_h, tile_h):
+                    screen.blit(tile_surface, (x, y))
+
+    def _render_tile_layers(self, screen: pygame.Surface, tilemap: dict, zone: Zone) -> None:
+        bounds = self._zone_rect(zone)
+        if not bounds:
+            return
+
+        tile_size = int(tilemap.get("tile_size", 40))
+        ground = tilemap.get("ground_grid", [])
+        for y, row in enumerate(ground):
+            for x, tile_name in enumerate(row):
+                tile_surface = self._tile_surface(tile_name, tile_size)
+                if not tile_surface:
+                    continue
+                world_x = bounds.x + x * tile_size
+                world_y = bounds.y + y * tile_size
+                screen.blit(tile_surface, self._screen_point((world_x, world_y)))
+
+        for decoration in tilemap.get("decorations", []):
+            tile_name = decoration.get("tile", "flowers")
+            positions = decoration.get("positions", [])
+            tile_surface = self._tile_surface(tile_name, tile_size)
+            if not tile_surface:
+                continue
+            for pos in positions:
+                px, py = pos
+                world_x = bounds.x + px * tile_size
+                world_y = bounds.y + py * tile_size
+                screen.blit(tile_surface, self._screen_point((world_x, world_y)))
+
+        for prop in tilemap.get("props", []):
+            tile_name = prop.get("tile", "campfire")
+            positions = prop.get("positions", [])
+            tile_surface = self._tile_surface(tile_name, tile_size)
+            if not tile_surface:
+                continue
+            for pos in positions:
+                px, py = pos
+                world_x = bounds.x + px * tile_size
+                world_y = bounds.y + py * tile_size
+                screen.blit(tile_surface, self._screen_point((world_x, world_y)))
 
     def _render_minimap(self, screen: pygame.Surface, zone: Zone) -> None:
         if not self.font:
@@ -2172,70 +2619,7 @@ class PygameMMO:
         for actor in self.actors.values():
             rect = project_rect(actor.rect)
             center = (rect.centerx, rect.centery)
-            color = pygame.Color(200, 70, 70) if actor.name == self.target_name else actor.color
-            if actor.name == PLAYER_NAME:
-                color = pygame.Color(240, 220, 140)
-            pygame.draw.circle(screen, color, center, max(3, int(6 * scale)), width=0)
-            pygame.draw.circle(screen, (12, 14, 18), center, max(3, int(6 * scale)), 1)
-
-        label = self.font.render(zone.name.title(), True, (210, 220, 235))
-        screen.blit(label, (map_rect.x + 12, map_rect.y + 8))
-
-    def _render_minimap(self, screen: pygame.Surface, zone: Zone) -> None:
-        if not self.font:
-            return
-
-        bounds = self._zone_rect(zone)
-        if not bounds:
-            return
-
-        margin = 12
-        max_dimension = min(max(self.screen_size) * 0.25, 240)
-        map_size = int(max(170, max_dimension))
-        map_rect = pygame.Rect(
-            self.screen_size[0] - map_size - margin,
-            margin,
-            map_size,
-            map_size,
-        )
-
-        pygame.draw.rect(screen, (16, 20, 28), map_rect, border_radius=12)
-        pygame.draw.rect(screen, (90, 120, 150), map_rect, 2, border_radius=12)
-
-        padding = 10
-        available_w = map_rect.width - padding * 2
-        available_h = map_rect.height - padding * 2
-        scale = min(available_w / bounds.width, available_h / bounds.height)
-        content_w = bounds.width * scale
-        content_h = bounds.height * scale
-        origin_x = map_rect.x + padding + (available_w - content_w) / 2
-        origin_y = map_rect.y + padding + (available_h - content_h) / 2
-
-        def project_rect(rect: pygame.Rect) -> pygame.Rect:
-            return pygame.Rect(
-                int(origin_x + (rect.x - bounds.x) * scale),
-                int(origin_y + (rect.y - bounds.y) * scale),
-                max(2, int(rect.width * scale)),
-                max(2, int(rect.height * scale)),
-            )
-
-        pygame.draw.rect(
-            screen,
-            (40, 60, 82),
-            pygame.Rect(int(origin_x), int(origin_y), int(content_w), int(content_h)),
-            2,
-            border_radius=8,
-        )
-
-        for obstacle in self._zone_obstacles(zone):
-            projected = project_rect(obstacle)
-            pygame.draw.rect(screen, (65, 85, 115), projected, border_radius=4)
-            pygame.draw.rect(screen, (110, 140, 175), projected, 1, border_radius=4)
-
-        for actor in self.actors.values():
-            rect = project_rect(actor.rect)
-            center = (rect.centerx, rect.centery)
-            color = pygame.Color(200, 70, 70) if actor.name == self.target_name else actor.color
+            color = pygame.Color(200, 70, 70) if actor.name == self.target_name else actor.minimap_color
             if actor.name == PLAYER_NAME:
                 color = pygame.Color(240, 220, 140)
             pygame.draw.circle(screen, color, center, max(3, int(6 * scale)), width=0)
@@ -2341,6 +2725,7 @@ class PygameMMO:
             screen = pygame.display.set_mode(self.screen_size)
         clock = pygame.time.Clock()
         self.running = True
+        self._initialize_render_assets()
 
         while self.running:
             dt = clock.tick(60) / 1000.0
@@ -2393,6 +2778,7 @@ class PygameMMO:
             self._handle_input(dt)
             self._maybe_spawn_target()
             self._handle_defeat()
+            self._update_actor_animations(dt)
             self._render(screen)
 
         pygame.quit()
