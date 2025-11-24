@@ -54,6 +54,7 @@ class CharacterDefinition(BaseDefinition):
     family: str | None = Field(default=None)
     stats: dict[str, int] = Field(default_factory=dict)
     skills: dict[str, int] = Field(default_factory=dict)
+    level: int = Field(default=1, ge=1)
 
 
 class AbilityDefinition(BaseDefinition):
