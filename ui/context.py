@@ -71,6 +71,7 @@ def build_context(data_path: Path) -> GameContext:
             family=profile.family,
             stats=profile.stats,
             skills=profile.skills,
+            level=profile.level,
         )
 
     economy = EconomySystem(bus, item_registry=bundle.items, combat_system=combat)

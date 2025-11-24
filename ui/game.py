@@ -258,6 +258,7 @@ class PygameMMO:
         self.hovered_slot: ItemSlot | None = None
         self.hotbar_assignments: dict[str, str | None] = {f"bottom-{idx}": None for idx in range(6)}
         self.talent_ranks: dict[str, int] = {}
+        self.skill_effects: list[dict[str, object]] = []
         self.zone_boundary_color = pygame.Color(90, 130, 190)
         self.obstacle_color = pygame.Color(65, 75, 95)
         self.interaction_hint: str | None = None
@@ -1238,7 +1239,14 @@ class PygameMMO:
 
     def _talent_budget(self, class_name: str) -> int:
         tree = self._talent_tree_for_class(class_name)
-        return int(tree.get("total_points", 0)) if tree else 0
+        combatant = self._player_combatant()
+        if not tree or not combatant:
+            return 0
+
+        cap = max(0, int(tree.get("total_points", 0)))
+        earned = max(0, int(getattr(combatant, "level", 1)) - 1)
+
+        return earned if cap == 0 else min(earned, cap)
 
     def _talent_prereqs_met(self, node: dict) -> bool:
         return all(self.talent_ranks.get(req, 0) > 0 for req in node.get("requires", []))
@@ -1287,6 +1295,29 @@ class PygameMMO:
             self.quest_log.append(f"Learned talent {selected.get('name', node_id)} (rank {self.talent_ranks[node_id]}).")
         return True
 
+    def _is_safe_zone(self) -> bool:
+        zone = self.context.zones.active_zone
+        return bool(zone and (zone.is_static or zone.danger_level in {"none", "low"}))
+
+    def _is_support_ability(self, definition: dict | None) -> bool:
+        if not definition:
+            return False
+
+        if int(definition.get("heal", 0)) > 0:
+            return True
+
+        supportive_tags = {"heal", "buff", "support", "shield"}
+        return any(tag in supportive_tags for tag in definition.get("tags", []))
+
+    def _is_ability_restricted(self, definition: dict | None) -> bool:
+        if not definition:
+            return True
+
+        if not self._is_safe_zone():
+            return False
+
+        return not self._is_support_ability(definition)
+
     def _ability_state(self, combatant, ability_name: str) -> tuple[dict | None, dict]:
         definitions = self.context.bundle.abilities.definitions()
         definition = definitions.get(ability_name)
@@ -1296,6 +1327,7 @@ class PygameMMO:
             "resource_missing": False,
             "ready": False,
             "resource": 0,
+            "restricted": False,
         }
         if not combatant or not definition:
             return definition, state
@@ -1305,7 +1337,13 @@ class PygameMMO:
         current = combatant.resource(resource_type)
         state["resource"] = current
         state["resource_missing"] = current < cost
-        state["ready"] = state["cooldown"] <= 0 and state["gcd"] <= 0 and not state["resource_missing"]
+        state["restricted"] = self._is_ability_restricted(definition)
+        state["ready"] = (
+            state["cooldown"] <= 0
+            and state["gcd"] <= 0
+            and not state["resource_missing"]
+            and not state["restricted"]
+        )
         return definition, state
 
     def _current_target(self) -> str | None:
@@ -1325,6 +1363,10 @@ class PygameMMO:
         if not definition or not state.get("ready"):
             return False
 
+        if self._is_ability_restricted(definition):
+            self.quest_log.append("Skills cannot be used in town unless they heal or buff.")
+            return False
+
         target = self._current_target()
         if not target:
             return False
@@ -1334,11 +1376,34 @@ class PygameMMO:
             actor = self.actors.get(PLAYER_NAME)
             if actor:
                 actor.trigger_attack()
+            self._start_skill_effect(ability_name, definition)
             self.tutorial.record_attack()
             return True
         except Exception as exc:  # pragma: no cover - defensive cast guard
             log_with_fields(logger, logging.WARNING, "Ability cast failed", ability=ability_name, error=str(exc))
         return False
+
+    def _start_skill_effect(self, ability_name: str, definition: dict | None) -> None:
+        palette = {
+            "fire": pygame.Color(220, 110, 60, 190),
+            "arcane": pygame.Color(150, 120, 220, 190),
+            "frost": pygame.Color(120, 190, 230, 190),
+            "physical": pygame.Color(200, 220, 140, 190),
+        }
+        school = (definition or {}).get("school", "physical")
+        color = palette.get(school, pygame.Color(200, 210, 230, 190))
+        label = ability_name.replace("_", " ").title()
+        duration = 0.9
+        self.skill_effects.append({"name": label, "timer": duration, "duration": duration, "color": color})
+
+    def _update_skill_effects(self, dt: float) -> None:
+        remaining: list[dict[str, object]] = []
+        for effect in self.skill_effects:
+            timer = float(effect.get("timer", 0.0)) - dt
+            if timer > 0:
+                effect["timer"] = timer
+                remaining.append(effect)
+        self.skill_effects = remaining
 
     def _forget_pack_position(self, item: Item) -> None:
         self.inventory_positions.pop(id(item), None)
@@ -1803,6 +1868,27 @@ class PygameMMO:
         )
         self._reset_zone_population(next_zone, direction)
 
+    def _render_skill_effects(self, screen: pygame.Surface, player: Actor) -> None:
+        if not self.skill_effects:
+            return
+
+        center = self._screen_point(player.rect.center)
+        for effect in self.skill_effects:
+            duration = float(effect.get("duration", 1.0)) or 1.0
+            timer = float(effect.get("timer", 0.0))
+            progress = max(0.0, min(1.0, timer / duration))
+            radius = int(40 + (1.0 - progress) * 16)
+            color = effect.get("color", pygame.Color(200, 210, 230, 190))
+            if isinstance(color, tuple):
+                color = pygame.Color(*color)
+            alpha = max(40, min(220, int(220 * progress)))
+            glow = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+            pygame.draw.circle(glow, pygame.Color(color.r, color.g, color.b, alpha), (radius, radius), radius, width=5)
+            screen.blit(glow, (center[0] - radius, center[1] - radius))
+
+            label = self.font.render(str(effect.get("name", "")), True, pygame.Color(color.r, color.g, color.b))
+            screen.blit(label, (center[0] - label.get_width() // 2, center[1] - radius - label.get_height() - 4))
+
     def _render_combat_overlay(self, screen: pygame.Surface, bar_height: int) -> None:
         combatant = self._player_combatant()
         if not combatant or not self.font:
@@ -1848,6 +1934,10 @@ class PygameMMO:
             f"{resource_value}/{max_resource}",
         )
 
+        player_actor = self.actors.get(PLAYER_NAME)
+        if player_actor:
+            self._render_skill_effects(screen, player_actor)
+
         slot_size = 66
         spacing = 10
         bottom_slots = 6
@@ -1882,11 +1972,14 @@ class PygameMMO:
 
                 overlay = None
                 overlay_text = None
-                if state["cooldown"] > 0:
-                    overlay_text = f"CD {state['cooldown']}"
+                if state.get("restricted"):
+                    overlay_text = "Town"
+                    overlay = pygame.Color(110, 70, 70, 170)
+                elif state["cooldown"] > 0:
+                    overlay_text = f"CD {state['cooldown']:.1f}"
                     overlay = pygame.Color(15, 18, 26, 170)
                 elif state["gcd"] > 0:
-                    overlay_text = "GCD"
+                    overlay_text = f"GCD {state['gcd']:.1f}" if state["gcd"] > 0.9 else "GCD"
                     overlay = pygame.Color(40, 60, 90, 150)
                 elif state["resource_missing"]:
                     overlay_text = "Low"
@@ -2224,10 +2317,10 @@ class PygameMMO:
         if not combatant:
             return
 
-        margin = 12
-        gap = 10
-        panel_width = min(self.screen_size[0] - margin * 2, 700)
-        panel_height = 360
+        margin = 16
+        gap = 12
+        panel_width = min(self.screen_size[0] - margin * 2, 860)
+        panel_height = 420
         panel_rect = pygame.Rect(
             margin,
             self.screen_size[1] - bar_height - panel_height - margin,
@@ -2239,16 +2332,16 @@ class PygameMMO:
         header = self.font.render("Skill Sheet — drag to hotbar • Spend talent points", True, (215, 225, 235))
         screen.blit(header, (panel_rect.x + 12, panel_rect.y + 10))
 
-        left_width = 300
+        left_width = 360
         right_width = panel_rect.width - left_width - gap * 2
-        abilities_rect = pygame.Rect(panel_rect.x + gap, panel_rect.y + 36, left_width - gap, panel_rect.height - 48)
+        abilities_rect = pygame.Rect(panel_rect.x + gap, panel_rect.y + 40, left_width - gap, panel_rect.height - 54)
         pygame.draw.rect(screen, (22, 26, 34), abilities_rect, border_radius=8)
         pygame.draw.rect(screen, (78, 98, 122), abilities_rect, 1, border_radius=8)
 
         abilities = self._ability_definitions_for_class(combatant.class_name)
         y_cursor = abilities_rect.y + gap
-        padding = 8
-        card_height = 64
+        padding = 12
+        card_height = 84
         if abilities:
             for ability_name, definition in sorted(abilities.items()):
                 card_rect = pygame.Rect(abilities_rect.x + 6, y_cursor, abilities_rect.width - 12, card_height)
@@ -2265,26 +2358,30 @@ class PygameMMO:
                 screen.blit(title, (card_rect.x + padding, card_rect.y + padding))
 
                 description = definition.get("description", "")
-                desc_text = self.font.render(description, True, (185, 195, 206))
-                screen.blit(desc_text, (card_rect.x + padding, card_rect.y + padding + 18))
+                wrapped = self._wrap_text(description, max_width=card_rect.width - padding * 2)
+                text_y = card_rect.y + padding + 18
+                for line in wrapped[:2]:
+                    desc_text = self.font.render(line, True, (185, 195, 206))
+                    screen.blit(desc_text, (card_rect.x + padding, text_y))
+                    text_y += desc_text.get_height() + 2
 
                 rank = combatant.skills.get(ability_name, 0)
-                cooldown = definition.get("cooldown_turns", 0)
+                cooldown = float(definition.get("cooldown_turns", 0))
                 cost = definition.get("cost", 0)
                 resource_type = definition.get("resource_type", "mana").title()
                 detail = self.font.render(
-                    f"Rank {rank} • {resource_type} {cost} • Cooldown {cooldown}",
+                    f"Rank {rank} • {resource_type} {cost} • Cooldown {cooldown:.1f}s",
                     True,
                     (170, 185, 198),
                 )
                 screen.blit(detail, (card_rect.x + padding, card_rect.bottom - padding - detail.get_height()))
 
                 _, state = self._ability_state(combatant, ability_name)
-                if any((state["cooldown"], state["gcd"], state["resource_missing"])):
+                if any((state["restricted"], state["cooldown"], state["gcd"], state["resource_missing"])):
                     overlay = pygame.Surface((card_rect.width, card_rect.height), pygame.SRCALPHA)
                     overlay.fill((10, 14, 20, 140))
                     screen.blit(overlay, card_rect)
-                    label = "Cooldown" if state["cooldown"] else "GCD" if state["gcd"] else "Resource"
+                    label = "Town" if state["restricted"] else "Cooldown" if state["cooldown"] else "GCD" if state["gcd"] else "Resource"
                     flag = self.font.render(label, True, (230, 235, 240))
                     screen.blit(
                         flag,
@@ -2325,7 +2422,7 @@ class PygameMMO:
             )
             screen.blit(status, (tree_rect.x + 10, tree_rect.y + 28))
 
-            tier_height = 98
+            tier_height = 112
             node_width = (tree_rect.width - gap * 4) // 3
             for tier_index, tier in enumerate(tree.get("tiers", [])):
                 tier_y = tree_rect.y + 50 + tier_index * (tier_height + gap)
@@ -2781,6 +2878,9 @@ class PygameMMO:
 
             for actor in self.actors.values():
                 actor.update_cooldown(dt)
+
+            self.context.combat.tick_timers(dt)
+            self._update_skill_effects(dt)
 
             self._handle_input(dt)
             self._maybe_spawn_target()

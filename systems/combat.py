@@ -23,14 +23,15 @@ class Combatant:
     equipped: Dict[str, Item] = field(default_factory=dict)
     base_capacity: int = 10
     buffs: list["Buff"] = field(default_factory=list)
-    gcd_remaining: int = 0
-    cooldowns: Dict[str, int] = field(default_factory=dict)
+    gcd_remaining: float = 0.0
+    cooldowns: Dict[str, float] = field(default_factory=dict)
     family: str | None = None
     position: Tuple[int, int] = (0, 0)
     strength: int = 0
     agility: int = 0
     mastery: int = 0
     skills: Dict[str, int] = field(default_factory=dict)
+    level: int = 1
 
     def is_alive(self) -> bool:
         return self.hit_points > 0
@@ -87,6 +88,7 @@ class CombatSystem:
         family: str | None = None,
         stats: Dict[str, int] | None = None,
         skills: Dict[str, int] | None = None,
+        level: int = 1,
     ) -> Combatant:
         if name in self.characters:
             return self.characters[name]
@@ -105,6 +107,7 @@ class CombatSystem:
             agility=int((stats or {}).get("agility", 0)),
             mastery=int((stats or {}).get("mastery", 0)),
             skills=dict(skills or {}),
+            level=int(level),
         )
         for item in items:
             self._maybe_equip(combatant, item)
@@ -350,12 +353,26 @@ class CombatSystem:
         combatant.buffs = remaining
 
     def _advance_turns(self, combatant: Combatant) -> None:
-        combatant.gcd_remaining = max(0, combatant.gcd_remaining - 1)
-        cooled: Dict[str, int] = {}
+        self._tick_buffs(combatant)
+        combatant.gcd_remaining = max(0.0, combatant.gcd_remaining - 1.0)
+        cooled: Dict[str, float] = {}
         for ability, remaining in combatant.cooldowns.items():
-            if remaining > 1:
-                cooled[ability] = remaining - 1
+            updated = max(0.0, float(remaining) - 1.0)
+            if updated > 0.0:
+                cooled[ability] = updated
         combatant.cooldowns = cooled
+
+    def tick_timers(self, dt: float) -> None:
+        """Reduce global and per-ability cooldown timers over time."""
+
+        for combatant in self.characters.values():
+            combatant.gcd_remaining = max(0.0, combatant.gcd_remaining - dt)
+            cooled: Dict[str, float] = {}
+            for ability, remaining in combatant.cooldowns.items():
+                updated = max(0.0, float(remaining) - dt)
+                if updated > 0.0:
+                    cooled[ability] = updated
+            combatant.cooldowns = cooled
 
     def _spend_resource(self, combatant: Combatant, resource_type: str, cost: int) -> bool:
         current = combatant.resource_pools.get(resource_type, 0)
@@ -480,12 +497,9 @@ class CombatSystem:
             defender.hit_points += ability.heal
             healing = ability.heal
 
-        attacker.cooldowns[ability.name] = max(1, ability.cooldown_turns)
-        attacker.gcd_remaining = max(1, ability.gcd_turns)
+        attacker.cooldowns[ability.name] = float(max(1, ability.cooldown_turns))
+        attacker.gcd_remaining = float(max(1, ability.gcd_turns))
         self._apply_durability_loss(attacker, ["mainhand"], amount=1)
-        self._tick_buffs(attacker)
-        if defender:
-            self._tick_buffs(defender)
         self._advance_turns(attacker)
         if defender:
             self._advance_turns(defender)

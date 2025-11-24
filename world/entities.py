@@ -250,6 +250,7 @@ class CharacterProfile:
     family: str | None = None
     stats: dict[str, int] = field(default_factory=dict)
     skills: dict[str, int] = field(default_factory=dict)
+    level: int = 1
 
     @classmethod
     def from_definition(cls, name: str, data: Dict) -> "CharacterProfile":
@@ -263,4 +264,5 @@ class CharacterProfile:
             family=data.get("family"),
             stats=dict(data.get("stats", {})),
             skills=dict(data.get("skills", {})),
+            level=int(data.get("level", 1)),
         )
