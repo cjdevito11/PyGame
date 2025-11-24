@@ -113,7 +113,7 @@ class Zone:
     obstacles: List[ZoneBounds]
     spawn_points: Dict[str, SpawnPoint]
     connections: Dict[str, ZoneConnection] = field(default_factory=dict)
-    encounter_tables: Dict[str, List[EncounterTableRef]]
+    encounter_tables: Dict[str, List[EncounterTableRef]] = field(default_factory=dict)
     background: Tuple[int, int, int]
     theme: str | None = None
     seed: int | None = None
