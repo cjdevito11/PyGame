@@ -127,6 +127,63 @@ class Ability:
 
 
 @dataclass
+class TalentNode:
+    id: str
+    name: str
+    description: str
+    max_rank: int = 1
+    row: int = 0
+    column: int = 0
+    requires: list[str] = field(default_factory=list)
+    grants_ability: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_definition(cls, name: str, data: Dict) -> "TalentNode":
+        return cls(
+            id=data.get("id", name),
+            name=data.get("name", name.title()),
+            description=data.get("description", ""),
+            max_rank=int(data.get("max_rank", 1)),
+            row=int(data.get("row", 0)),
+            column=int(data.get("column", 0)),
+            requires=list(data.get("requires", [])),
+            grants_ability=list(data.get("grants_ability", [])),
+        )
+
+
+@dataclass
+class TalentTier:
+    name: str
+    min_points: int
+    nodes: list[TalentNode]
+
+    @classmethod
+    def from_definition(cls, name: str, data: Dict) -> "TalentTier":
+        nodes = [TalentNode.from_definition(entry.get("id", node_name), entry) for node_name, entry in enumerate(data.get("nodes", []))]
+        return cls(name=data.get("name", name), min_points=int(data.get("min_points", 0)), nodes=nodes)
+
+
+@dataclass
+class TalentTree:
+    name: str
+    description: str
+    class_name: str
+    total_points: int
+    tiers: list[TalentTier]
+
+    @classmethod
+    def from_definition(cls, name: str, data: Dict) -> "TalentTree":
+        tiers = [TalentTier.from_definition(f"tier-{idx}", entry) for idx, entry in enumerate(data.get("tiers", []))]
+        return cls(
+            name=name,
+            description=data.get("description", ""),
+            class_name=data.get("class_name", ""),
+            total_points=int(data.get("total_points", 0)),
+            tiers=tiers,
+        )
+
+
+@dataclass
 class Profession:
     name: str
     description: str

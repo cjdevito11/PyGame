@@ -70,6 +70,29 @@ class AbilityDefinition(BaseDefinition):
     tags: list[str] = Field(default_factory=list)
 
 
+class TalentNodeDefinition(BaseModel):
+    id: str
+    name: str
+    description: str
+    max_rank: int = Field(default=1, ge=1, le=10)
+    row: int = Field(default=0, ge=0, le=8)
+    column: int = Field(default=0, ge=0, le=8)
+    requires: list[str] = Field(default_factory=list)
+    grants_ability: list[str] = Field(default_factory=list)
+
+
+class TalentTierDefinition(BaseModel):
+    name: str
+    min_points: int = Field(default=0, ge=0, le=99)
+    nodes: list[TalentNodeDefinition] = Field(default_factory=list)
+
+
+class TalentTreeDefinition(BaseDefinition):
+    class_name: str
+    total_points: int = Field(default=6, ge=0, le=99)
+    tiers: list[TalentTierDefinition] = Field(default_factory=list)
+
+
 class ProfessionDefinition(BaseDefinition):
     type: str
     perks: list[str] = Field(default_factory=list)

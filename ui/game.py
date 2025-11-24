@@ -58,6 +58,22 @@ class ItemSlot:
     category: str  # "equip", "pack", "sell", "drop"
 
 
+@dataclass
+class AbilitySlot:
+    rect: pygame.Rect
+    ability: str | None
+    slot_id: str
+
+
+@dataclass
+class TalentSlot:
+    rect: pygame.Rect
+    node_id: str
+    tier_index: int
+    max_rank: int
+    column: int
+
+
 RARITY_COLORS: Dict[str | None, pygame.Color] = {
     None: pygame.Color(160, 160, 170),
     "common": pygame.Color(180, 185, 200),
@@ -147,13 +163,20 @@ class PygameMMO:
         self.pack_slots: list[ItemSlot] = []
         self.equip_slots: list[ItemSlot] = []
         self.action_slots: list[ItemSlot] = []
+        self.skill_slots: list[AbilitySlot] = []
+        self.hotbar_slots: list[AbilitySlot] = []
+        self.talent_slots: list[TalentSlot] = []
         self.pack_canvas_slot: ItemSlot | None = None
         self.inventory_positions: dict[int, Tuple[int, int]] = {}
         self.toolbar_buttons: list[tuple[str, pygame.Rect]] = []
         self.quest_panel_tab: pygame.Rect | None = None
         self.dragging_slot: ItemSlot | None = None
         self.drag_offset: Tuple[int, int] = (0, 0)
+        self.dragging_ability: str | None = None
+        self.dragging_from_slot: str | None = None
         self.hovered_slot: ItemSlot | None = None
+        self.hotbar_assignments: dict[str, str | None] = {f"bottom-{idx}": None for idx in range(6)}
+        self.talent_ranks: dict[str, int] = {}
         self.zone_boundary_color = pygame.Color(90, 130, 190)
         self.obstacle_color = pygame.Color(65, 75, 95)
         self.interaction_hint: str | None = None
@@ -554,6 +577,22 @@ class PygameMMO:
         self.drag_offset = (pos[0] - slot.rect.x, pos[1] - slot.rect.y)
         return True
 
+    def _start_skill_drag(self, pos: Tuple[int, int]) -> bool:
+        slot = next((slot for slot in self.skill_slots if slot.rect.collidepoint(pos)), None)
+        if slot:
+            self.dragging_ability = slot.ability
+            self.dragging_from_slot = None
+            return True
+
+        move_existing = bool(pygame.key.get_mods() & pygame.KMOD_SHIFT)
+        if move_existing:
+            slot = next((slot for slot in self.hotbar_slots if slot.rect.collidepoint(pos) and slot.ability), None)
+            if slot:
+                self.dragging_ability = slot.ability
+                self.dragging_from_slot = slot.slot_id
+                return True
+        return False
+
     def _drop_item(self, item: Item) -> None:
         removed = self.context.combat.remove_item(PLAYER_NAME, item.name)
         if removed:
@@ -601,6 +640,37 @@ class PygameMMO:
             self._place_item_in_pack(item, (target_x, target_y), slot_size, 6)
 
         self.dragging_slot = None
+
+    def _complete_skill_drag(self, pos: Tuple[int, int]) -> None:
+        if not self.dragging_ability:
+            return
+
+        destination = next((slot for slot in self.hotbar_slots if slot.rect.collidepoint(pos)), None)
+        if destination:
+            self.hotbar_assignments[destination.slot_id] = self.dragging_ability
+
+        if self.dragging_from_slot and (not destination or destination.slot_id != self.dragging_from_slot):
+            self.hotbar_assignments[self.dragging_from_slot] = None
+
+        self.dragging_ability = None
+        self.dragging_from_slot = None
+
+    def _handle_hotbar_click(self, pos: Tuple[int, int]) -> bool:
+        slot = next((slot for slot in self.hotbar_slots if slot.rect.collidepoint(pos)), None)
+        if slot and slot.ability and not self.dragging_ability:
+            return self._cast_ability(slot.ability)
+        return False
+
+    def _handle_talent_click(self, pos: Tuple[int, int]) -> bool:
+        if not self.show_skills_panel:
+            return False
+        slot = next((slot for slot in self.talent_slots if slot.rect.collidepoint(pos)), None)
+        if not slot:
+            return False
+        combatant = self._player_combatant()
+        if not combatant:
+            return False
+        return self._allocate_talent_node(combatant.class_name, slot.node_id)
 
     def _maybe_spawn_target(self) -> None:
         zone = self.context.zones.active_zone
@@ -769,6 +839,131 @@ class PygameMMO:
             if slot.rect.collidepoint(pos):
                 return slot
         return None
+
+    def _ability_definitions_for_class(self, class_name: str) -> dict[str, dict]:
+        abilities: dict[str, dict] = {}
+        for name, definition in self.context.bundle.abilities.definitions().items():
+            if definition.get("class_name") == class_name:
+                abilities[name] = definition
+        return abilities
+
+    def _talent_tree_for_class(self, class_name: str) -> dict | None:
+        trees = self.context.bundle.talents.definitions() if hasattr(self.context.bundle, "talents") else {}
+        for entry in trees.values():
+            if entry.get("class_name") == class_name:
+                return entry
+        return None
+
+    def _talent_points_spent(self, class_name: str) -> int:
+        tree = self._talent_tree_for_class(class_name)
+        if not tree:
+            return 0
+        node_ids = [node.get("id") for tier in tree.get("tiers", []) for node in tier.get("nodes", [])]
+        return sum(self.talent_ranks.get(node_id, 0) for node_id in node_ids if node_id)
+
+    def _talent_budget(self, class_name: str) -> int:
+        tree = self._talent_tree_for_class(class_name)
+        return int(tree.get("total_points", 0)) if tree else 0
+
+    def _talent_prereqs_met(self, node: dict) -> bool:
+        return all(self.talent_ranks.get(req, 0) > 0 for req in node.get("requires", []))
+
+    def _allocate_talent_node(self, class_name: str, node_id: str) -> bool:
+        tree = self._talent_tree_for_class(class_name)
+        combatant = self._player_combatant()
+        if not tree or not combatant:
+            return False
+
+        budget = self._talent_budget(class_name)
+        spent = self._talent_points_spent(class_name)
+        if spent >= budget:
+            return False
+
+        selected = None
+        tier_requirement = 0
+        for idx, tier in enumerate(tree.get("tiers", [])):
+            tier_nodes = tier.get("nodes", [])
+            for node in tier_nodes:
+                if node.get("id") == node_id:
+                    selected = node
+                    tier_requirement = int(tier.get("min_points", 0))
+                    break
+            if selected:
+                break
+
+        if not selected:
+            return False
+
+        current_rank = self.talent_ranks.get(node_id, 0)
+        max_rank = int(selected.get("max_rank", 1))
+        if current_rank >= max_rank:
+            return False
+        if spent < tier_requirement:
+            return False
+        if not self._talent_prereqs_met(selected):
+            return False
+
+        self.talent_ranks[node_id] = current_rank + 1
+        grants = selected.get("grants_ability", [])
+        if grants:
+            ability_names = ", ".join(grants)
+            self.quest_log.append(f"Learned talent {selected.get('name', node_id)} (rank {self.talent_ranks[node_id]}). Added: {ability_names}.")
+        else:
+            self.quest_log.append(f"Learned talent {selected.get('name', node_id)} (rank {self.talent_ranks[node_id]}).")
+        return True
+
+    def _ability_state(self, combatant, ability_name: str) -> tuple[dict | None, dict]:
+        definitions = self.context.bundle.abilities.definitions()
+        definition = definitions.get(ability_name)
+        state = {
+            "cooldown": combatant.cooldowns.get(ability_name, 0) if combatant else 0,
+            "gcd": combatant.gcd_remaining if combatant else 0,
+            "resource_missing": False,
+            "ready": False,
+            "resource": 0,
+        }
+        if not combatant or not definition:
+            return definition, state
+
+        resource_type = definition.get("resource_type") or "mana"
+        cost = int(definition.get("cost") or 0)
+        current = combatant.resource(resource_type)
+        state["resource"] = current
+        state["resource_missing"] = current < cost
+        state["ready"] = state["cooldown"] <= 0 and state["gcd"] <= 0 and not state["resource_missing"]
+        return definition, state
+
+    def _current_target(self) -> str | None:
+        if self.target_name in self.actors and self.target_name != PLAYER_NAME:
+            return self.target_name
+        for name in self.actors:
+            if name not in {PLAYER_NAME, QUEST_GIVER_NAME}:
+                return name
+        return None
+
+    def _cast_ability(self, ability_name: str) -> bool:
+        combatant = self._player_combatant()
+        if not combatant:
+            return False
+
+        definition, state = self._ability_state(combatant, ability_name)
+        if not definition or not state.get("ready"):
+            return False
+
+        target = self._current_target()
+        if not target:
+            return False
+
+        try:
+            self.bus.publish("ability.cast", attacker=PLAYER_NAME, defender=target, ability=ability_name)
+            actor = self.actors.get(PLAYER_NAME)
+            if actor:
+                actor.trigger_attack()
+            self.tutorial.record_attack()
+            return True
+        except Exception as exc:  # pragma: no cover - defensive cast guard
+            log_with_fields(logger, logging.WARNING, "Ability cast failed", ability=ability_name, error=str(exc))
+        return False
 
     def _forget_pack_position(self, item: Item) -> None:
         self.inventory_positions.pop(id(item), None)
@@ -1233,7 +1428,7 @@ class PygameMMO:
         )
         self._reset_zone_population(next_zone, direction)
 
-    def _render_combat_overlay(self, screen: pygame.Surface) -> None:
+    def _render_combat_overlay(self, screen: pygame.Surface, bar_height: int) -> None:
         combatant = self._player_combatant()
         if not combatant or not self.font:
             return
@@ -1252,7 +1447,7 @@ class PygameMMO:
         health_ratio = min(1.0, combatant.hit_points / max_health)
         resource_ratio = min(1.0, resource_value / max_resource)
 
-        bar_height = 68
+        bar_height = max(68, bar_height)
         margin = 14
         radius = max(46, min(74, int(min(self.screen_size) * 0.09)))
         center_y = max(radius + margin, self.screen_size[1] - bar_height - margin - radius)
@@ -1277,6 +1472,110 @@ class PygameMMO:
             resource_type.replace("_", " ").title(),
             f"{resource_value}/{max_resource}",
         )
+
+        slot_size = 66
+        spacing = 10
+        bottom_slots = 6
+        side_slots = 4
+        self.hotbar_slots = []
+
+        total_bottom_width = bottom_slots * slot_size + (bottom_slots - 1) * spacing
+        bottom_y = self.screen_size[1] - bar_height - slot_size - margin
+        start_x = max(margin, (self.screen_size[0] - total_bottom_width) // 2)
+
+        def draw_slot(slot: AbilitySlot, *, key_hint: str | None = None) -> None:
+            label = slot.ability.replace("_", " ").title() if slot.ability else "Empty"
+            highlight = slot.rect.collidepoint(self.mouse_pos)
+            drop_target = bool(self.dragging_ability and slot.rect.collidepoint(self.mouse_pos))
+            base = pygame.Color(28, 32, 42)
+            accent_value = 230 if drop_target else 200
+            accent = pygame.Color(120, 170, accent_value)
+            if drop_target:
+                accent = pygame.Color(160, 210, 235)
+            pygame.draw.rect(screen, base, slot.rect, border_radius=8)
+            pygame.draw.rect(screen, accent, slot.rect, 2, border_radius=8)
+
+            if slot.ability:
+                definition, state = self._ability_state(combatant, slot.ability)
+                name_text = self.font.render(label, True, (215, 225, 235))
+                screen.blit(name_text, (slot.rect.x + 8, slot.rect.y + 6))
+
+                cost = definition.get("cost", 0) if definition else 0
+                resource_type = (definition or {}).get("resource_type", "mana")
+                detail = self.font.render(f"{resource_type.title()} {cost}", True, (170, 185, 198))
+                screen.blit(detail, (slot.rect.x + 8, slot.rect.bottom - detail.get_height() - 8))
+
+                overlay = None
+                overlay_text = None
+                if state["cooldown"] > 0:
+                    overlay_text = f"CD {state['cooldown']}"
+                    overlay = pygame.Color(15, 18, 26, 170)
+                elif state["gcd"] > 0:
+                    overlay_text = "GCD"
+                    overlay = pygame.Color(40, 60, 90, 150)
+                elif state["resource_missing"]:
+                    overlay_text = "Low"
+                    overlay = pygame.Color(120, 60, 60, 150)
+
+                if overlay:
+                    veil = pygame.Surface((slot.rect.width, slot.rect.height), pygame.SRCALPHA)
+                    veil.fill(overlay)
+                    screen.blit(veil, slot.rect)
+                if overlay_text:
+                    text = self.font.render(overlay_text, True, (235, 240, 245))
+                    screen.blit(
+                        text,
+                        (
+                            slot.rect.centerx - text.get_width() // 2,
+                            slot.rect.centery - text.get_height() // 2,
+                        ),
+                    )
+            else:
+                prompt = self.font.render("Drop Skill", True, (120, 135, 150))
+                screen.blit(
+                    prompt,
+                    (
+                        slot.rect.centerx - prompt.get_width() // 2,
+                        slot.rect.centery - prompt.get_height() // 2,
+                    ),
+                )
+
+            if key_hint:
+                hint = self.font.render(key_hint, True, (145, 165, 190) if highlight else (100, 115, 132))
+                screen.blit(hint, (slot.rect.x + slot.rect.width - hint.get_width() - 6, slot.rect.y + 6))
+
+        for idx in range(bottom_slots):
+            rect = pygame.Rect(start_x + idx * (slot_size + spacing), bottom_y, slot_size, slot_size)
+            slot_id = f"bottom-{idx}"
+            ability_name = self.hotbar_assignments.get(slot_id)
+            self.hotbar_assignments.setdefault(slot_id, ability_name)
+            slot = AbilitySlot(rect, ability_name, slot_id)
+            self.hotbar_slots.append(slot)
+            draw_slot(slot, key_hint=str(idx + 1))
+
+        side_x = self.screen_size[0] - margin - slot_size
+        side_start_y = max(margin, bottom_y - (slot_size + spacing) * side_slots)
+        for idx in range(side_slots):
+            rect = pygame.Rect(side_x, side_start_y + idx * (slot_size + spacing), slot_size, slot_size)
+            slot_id = f"side-{idx}"
+            ability_name = self.hotbar_assignments.get(slot_id)
+            self.hotbar_assignments.setdefault(slot_id, ability_name)
+            slot = AbilitySlot(rect, ability_name, slot_id)
+            self.hotbar_slots.append(slot)
+            draw_slot(slot, key_hint=f"F{idx + 1}")
+
+        if self.dragging_ability:
+            ghost_rect = pygame.Rect(self.mouse_pos[0] - slot_size // 2, self.mouse_pos[1] - slot_size // 2, slot_size, slot_size)
+            pygame.draw.rect(screen, (30, 36, 46, 220), ghost_rect, border_radius=8)
+            pygame.draw.rect(screen, (150, 200, 230), ghost_rect, 2, border_radius=8)
+            ghost_label = self.font.render(self.dragging_ability.replace("_", " ").title(), True, (225, 235, 245))
+            screen.blit(
+                ghost_label,
+                (
+                    ghost_rect.centerx - ghost_label.get_width() // 2,
+                    ghost_rect.centery - ghost_label.get_height() // 2,
+                ),
+            )
 
     def _draw_globe(
         self,
@@ -1541,6 +1840,8 @@ class PygameMMO:
         screen.blit(surface, panel_rect)
 
     def _render_skills_panel(self, screen: pygame.Surface, bar_height: int) -> None:
+        self.skill_slots = []
+        self.talent_slots = []
         if not self.show_skills_panel or not self.font:
             return
 
@@ -1549,8 +1850,9 @@ class PygameMMO:
             return
 
         margin = 12
-        panel_width = 260
-        panel_height = 200
+        gap = 10
+        panel_width = min(self.screen_size[0] - margin * 2, 700)
+        panel_height = 360
         panel_rect = pygame.Rect(
             margin,
             self.screen_size[1] - bar_height - panel_height - margin,
@@ -1559,26 +1861,157 @@ class PygameMMO:
         )
         pygame.draw.rect(screen, (26, 30, 38), panel_rect, border_radius=10)
         pygame.draw.rect(screen, (90, 110, 130), panel_rect, 2, border_radius=10)
-        header = self.font.render("Skills", True, (215, 225, 235))
+        header = self.font.render("Skill Sheet — drag to hotbar • Spend talent points", True, (215, 225, 235))
         screen.blit(header, (panel_rect.x + 12, panel_rect.y + 10))
 
-        abilities = []
-        for name, definition in self.context.bundle.abilities.definitions().items():
-            if definition.get("class_name") == combatant.class_name:
-                abilities.append(name)
+        left_width = 300
+        right_width = panel_rect.width - left_width - gap * 2
+        abilities_rect = pygame.Rect(panel_rect.x + gap, panel_rect.y + 36, left_width - gap, panel_rect.height - 48)
+        pygame.draw.rect(screen, (22, 26, 34), abilities_rect, border_radius=8)
+        pygame.draw.rect(screen, (78, 98, 122), abilities_rect, 1, border_radius=8)
 
-        y_cursor = panel_rect.y + 34
-        line_height = 20
+        abilities = self._ability_definitions_for_class(combatant.class_name)
+        y_cursor = abilities_rect.y + gap
+        padding = 8
+        card_height = 64
         if abilities:
-            for ability in abilities[:6]:
-                rank = combatant.skills.get(ability, 0)
-                label = ability.replace("_", " ").title()
-                text = self.font.render(f"{label} — Rank {rank}", True, (195, 205, 215))
-                screen.blit(text, (panel_rect.x + 12, y_cursor))
-                y_cursor += line_height
+            for ability_name, definition in sorted(abilities.items()):
+                card_rect = pygame.Rect(abilities_rect.x + 6, y_cursor, abilities_rect.width - 12, card_height)
+                highlight = card_rect.collidepoint(self.mouse_pos) or (
+                    self.dragging_ability == ability_name
+                )
+                pygame.draw.rect(screen, (30, 36, 46), card_rect, border_radius=10)
+                pygame.draw.rect(screen, (140, 170, 200) if highlight else (90, 110, 130), card_rect, 1, border_radius=10)
+
+                slot = AbilitySlot(card_rect, ability_name, f"sheet-{ability_name}")
+                self.skill_slots.append(slot)
+
+                title = self.font.render(ability_name.replace("_", " ").title(), True, (215, 225, 235))
+                screen.blit(title, (card_rect.x + padding, card_rect.y + padding))
+
+                description = definition.get("description", "")
+                desc_text = self.font.render(description, True, (185, 195, 206))
+                screen.blit(desc_text, (card_rect.x + padding, card_rect.y + padding + 18))
+
+                rank = combatant.skills.get(ability_name, 0)
+                cooldown = definition.get("cooldown_turns", 0)
+                cost = definition.get("cost", 0)
+                resource_type = definition.get("resource_type", "mana").title()
+                detail = self.font.render(
+                    f"Rank {rank} • {resource_type} {cost} • Cooldown {cooldown}",
+                    True,
+                    (170, 185, 198),
+                )
+                screen.blit(detail, (card_rect.x + padding, card_rect.bottom - padding - detail.get_height()))
+
+                _, state = self._ability_state(combatant, ability_name)
+                if any((state["cooldown"], state["gcd"], state["resource_missing"])):
+                    overlay = pygame.Surface((card_rect.width, card_rect.height), pygame.SRCALPHA)
+                    overlay.fill((10, 14, 20, 140))
+                    screen.blit(overlay, card_rect)
+                    label = "Cooldown" if state["cooldown"] else "GCD" if state["gcd"] else "Resource"
+                    flag = self.font.render(label, True, (230, 235, 240))
+                    screen.blit(
+                        flag,
+                        (
+                            card_rect.centerx - flag.get_width() // 2,
+                            card_rect.centery - flag.get_height() // 2,
+                        ),
+                    )
+
+                y_cursor += card_height + gap
+                if y_cursor + card_height > abilities_rect.bottom - padding:
+                    break
         else:
             note = self.font.render("No class abilities yet.", True, (170, 180, 190))
-            screen.blit(note, (panel_rect.x + 12, y_cursor))
+            screen.blit(note, (abilities_rect.x + 12, y_cursor))
+
+        tree = self._talent_tree_for_class(combatant.class_name)
+        tree_rect = pygame.Rect(
+            abilities_rect.right + gap,
+            panel_rect.y + 36,
+            right_width,
+            panel_rect.height - 48,
+        )
+        pygame.draw.rect(screen, (22, 26, 34), tree_rect, border_radius=8)
+        pygame.draw.rect(screen, (78, 98, 122), tree_rect, 1, border_radius=8)
+
+        if tree:
+            budget = self._talent_budget(combatant.class_name)
+            spent = self._talent_points_spent(combatant.class_name)
+            available = max(0, budget - spent)
+            summary = self.font.render(
+                f"Talent Tree — {tree.get('description', '')}", True, (210, 220, 235)
+            )
+            screen.blit(summary, (tree_rect.x + 10, tree_rect.y + 8))
+
+            status = self.font.render(
+                f"Spent {spent}/{budget} • Available {available}", True, (170, 185, 198)
+            )
+            screen.blit(status, (tree_rect.x + 10, tree_rect.y + 28))
+
+            tier_height = 98
+            node_width = (tree_rect.width - gap * 4) // 3
+            for tier_index, tier in enumerate(tree.get("tiers", [])):
+                tier_y = tree_rect.y + 50 + tier_index * (tier_height + gap)
+                tier_rect = pygame.Rect(tree_rect.x + 8, tier_y, tree_rect.width - 16, tier_height)
+                pygame.draw.rect(screen, (18, 22, 30), tier_rect, border_radius=8)
+                pygame.draw.rect(screen, (70, 90, 110), tier_rect, 1, border_radius=8)
+
+                tier_label = self.font.render(
+                    f"{tier.get('name', 'Tier')} • Requires {tier.get('min_points', 0)} points", True, (185, 195, 206)
+                )
+                screen.blit(tier_label, (tier_rect.x + 8, tier_rect.y + 6))
+
+                for node in tier.get("nodes", []):
+                    column = int(node.get("column", 0))
+                    node_x = tier_rect.x + gap + column * (node_width + gap)
+                    node_rect = pygame.Rect(node_x, tier_rect.y + 26, node_width, tier_height - 34)
+                    node_id = node.get("id", "")
+                    rank = self.talent_ranks.get(node_id, 0)
+                    max_rank = int(node.get("max_rank", 1))
+                    unlocked = spent >= int(tier.get("min_points", 0)) and self._talent_prereqs_met(node)
+                    has_points = available > 0 and rank < max_rank
+                    hover = node_rect.collidepoint(self.mouse_pos)
+
+                    base = pygame.Color(30, 38, 48)
+                    accent = pygame.Color(120, 150, 190) if unlocked else pygame.Color(80, 90, 105)
+                    if hover and unlocked:
+                        accent = pygame.Color(150, 190, 230)
+                    pygame.draw.rect(screen, base, node_rect, border_radius=10)
+                    pygame.draw.rect(screen, accent, node_rect, 2, border_radius=10)
+
+                    title = self.font.render(node.get("name", node_id).title(), True, (215, 225, 235))
+                    screen.blit(title, (node_rect.x + 8, node_rect.y + 6))
+
+                    description = node.get("description", "")
+                    desc_text = self.font.render(description, True, (180, 192, 206))
+                    screen.blit(desc_text, (node_rect.x + 8, node_rect.y + 26))
+
+                    rank_text = self.font.render(f"Rank {rank}/{max_rank}", True, (170, 185, 198))
+                    screen.blit(rank_text, (node_rect.x + 8, node_rect.bottom - rank_text.get_height() - 8))
+
+                    if not unlocked:
+                        overlay = pygame.Surface((node_rect.width, node_rect.height), pygame.SRCALPHA)
+                        overlay.fill((8, 10, 14, 160))
+                        screen.blit(overlay, node_rect)
+                        reason = "Spend points" if spent < int(tier.get("min_points", 0)) else "Need prereq"
+                        lock_text = self.font.render(reason, True, (220, 225, 235))
+                        screen.blit(lock_text, (node_rect.centerx - lock_text.get_width() // 2, node_rect.centery - lock_text.get_height() // 2))
+                    elif rank >= max_rank:
+                        overlay = pygame.Surface((node_rect.width, node_rect.height), pygame.SRCALPHA)
+                        overlay.fill((10, 14, 20, 120))
+                        screen.blit(overlay, node_rect)
+                        maxed = self.font.render("Maxed", True, (230, 235, 240))
+                        screen.blit(maxed, (node_rect.centerx - maxed.get_width() // 2, node_rect.centery - maxed.get_height() // 2))
+                    elif has_points and hover:
+                        prompt = self.font.render("Click to spend", True, (230, 235, 240))
+                        screen.blit(prompt, (node_rect.centerx - prompt.get_width() // 2, node_rect.centery - prompt.get_height() // 2))
+
+                    self.talent_slots.append(TalentSlot(node_rect, node_id, tier_index, max_rank, column))
+        else:
+            note = self.font.render("No talent tree defined for this class yet.", True, (170, 180, 190))
+            screen.blit(note, (tree_rect.x + 12, tree_rect.y + 10))
 
     def _render_toolbar(self, screen: pygame.Surface, bar_height: int) -> None:
         assert self.font is not None
@@ -1665,7 +2098,7 @@ class PygameMMO:
         self._render_skills_panel(screen, bar_height)
         self._render_stats_panel(screen, bar_height)
         self._render_inventory_panel(screen)
-        self._render_combat_overlay(screen)
+        self._render_combat_overlay(screen, bar_height)
         self._render_help_overlay(screen)
         self._render_interaction_hint(screen, margin=margin, bar_height=bar_height)
         self._render_toolbar(screen, bar_height)
@@ -1923,13 +2356,23 @@ class PygameMMO:
                     if event.button == 1:
                         if self._handle_toolbar_click(event.pos):
                             continue
+                        if self._handle_talent_click(event.pos):
+                            continue
                         if self.show_inventory and self._start_drag(event.pos):
+                            continue
+                        if not (pygame.key.get_mods() & pygame.KMOD_SHIFT):
+                            if self._handle_hotbar_click(event.pos):
+                                continue
+                        if self._start_skill_drag(event.pos):
                             continue
                         self._handle_attack_click(event.pos)
                 if event.type == pygame.MOUSEBUTTONUP:
                     self.mouse_pos = event.pos
-                    if event.button == 1 and self.dragging_slot:
-                        self._complete_drag(event.pos)
+                    if event.button == 1:
+                        if self.dragging_slot:
+                            self._complete_drag(event.pos)
+                        if self.dragging_ability:
+                            self._complete_skill_drag(event.pos)
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_SPACE:
                         self._attempt_attack()

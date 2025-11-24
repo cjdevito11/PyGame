@@ -1,0 +1,180 @@
+[
+  {
+    "name": "adventurer_talents",
+    "description": "Stamina, blade work, and survival picks for the adventurous type.",
+    "class_name": "adventurer",
+    "total_points": 8,
+    "tiers": [
+      {
+        "name": "Tier 1 — Fundamentals",
+        "min_points": 0,
+        "nodes": [
+          {
+            "id": "blade_focus",
+            "name": "Blade Focus",
+            "description": "+1 melee power per rank to basic strikes.",
+            "max_rank": 3,
+            "row": 0,
+            "column": 0
+          },
+          {
+            "id": "reflex_training",
+            "name": "Reflex Training",
+            "description": "+2% move speed per rank while in combat.",
+            "max_rank": 2,
+            "row": 0,
+            "column": 1,
+            "requires": ["blade_focus"]
+          },
+          {
+            "id": "steady_footing",
+            "name": "Steady Footing",
+            "description": "Less pushback from hits; improves balance for channeling.",
+            "max_rank": 1,
+            "row": 0,
+            "column": 2
+          }
+        ]
+      },
+      {
+        "name": "Tier 2 — Combat Choices",
+        "min_points": 3,
+        "nodes": [
+          {
+            "id": "riposte_ready",
+            "name": "Riposte Ready",
+            "description": "Unlocks a counter-attack that triggers after a dodge or parry.",
+            "max_rank": 1,
+            "row": 1,
+            "column": 0,
+            "requires": ["reflex_training"],
+            "grants_ability": ["riposte"]
+          },
+          {
+            "id": "second_wind_plus",
+            "name": "Second Wind+",
+            "description": "Improves Second Wind healing by +2 per rank.",
+            "max_rank": 2,
+            "row": 1,
+            "column": 1,
+            "requires": ["steady_footing"]
+          },
+          {
+            "id": "whirling_blades",
+            "name": "Whirling Blades",
+            "description": "Unlocks a cleaving spin that damages nearby foes.",
+            "max_rank": 1,
+            "row": 1,
+            "column": 2,
+            "requires": ["blade_focus"],
+            "grants_ability": ["blade_storm"]
+          }
+        ]
+      },
+      {
+        "name": "Tier 3 — Capstone",
+        "min_points": 6,
+        "nodes": [
+          {
+            "id": "unbreakable",
+            "name": "Unbreakable",
+            "description": "Gain a brief shield when first entering combat.",
+            "max_rank": 1,
+            "row": 2,
+            "column": 1,
+            "requires": ["riposte_ready", "second_wind_plus"]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "mage_talents",
+    "description": "Glass-cannon knobs for fire, frost, and arcane control.",
+    "class_name": "mage",
+    "total_points": 9,
+    "tiers": [
+      {
+        "name": "Tier 1 — Apprentice",
+        "min_points": 0,
+        "nodes": [
+          {
+            "id": "spark_channeling",
+            "name": "Spark Channeling",
+            "description": "-5% mana cost on spells per rank.",
+            "max_rank": 3,
+            "row": 0,
+            "column": 0
+          },
+          {
+            "id": "glyph_ice",
+            "name": "Glyph of Ice",
+            "description": "Unlocks Ice Lance for quick, slowing shards.",
+            "max_rank": 1,
+            "row": 0,
+            "column": 1,
+            "requires": ["spark_channeling"],
+            "grants_ability": ["ice_lance"]
+          },
+          {
+            "id": "expanding_mind",
+            "name": "Expanding Mind",
+            "description": "+1 max mana per rank and faster regen.",
+            "max_rank": 2,
+            "row": 0,
+            "column": 2
+          }
+        ]
+      },
+      {
+        "name": "Tier 2 — Journeyman",
+        "min_points": 4,
+        "nodes": [
+          {
+            "id": "pyromania",
+            "name": "Pyromania",
+            "description": "+10% fire damage per rank while above half mana.",
+            "max_rank": 2,
+            "row": 1,
+            "column": 0,
+            "requires": ["spark_channeling"]
+          },
+          {
+            "id": "arcane_barrier",
+            "name": "Arcane Barrier",
+            "description": "Unlocks a barrier that converts mana to shields.",
+            "max_rank": 1,
+            "row": 1,
+            "column": 1,
+            "requires": ["expanding_mind"],
+            "grants_ability": ["arcane_barrier"]
+          },
+          {
+            "id": "frostbite",
+            "name": "Frostbite",
+            "description": "+5% slow strength to all frost spells per rank.",
+            "max_rank": 2,
+            "row": 1,
+            "column": 2,
+            "requires": ["glyph_ice"]
+          }
+        ]
+      },
+      {
+        "name": "Tier 3 — Master",
+        "min_points": 7,
+        "nodes": [
+          {
+            "id": "time_warp",
+            "name": "Time Warp",
+            "description": "Short burst of haste; refreshes global cooldown instantly.",
+            "max_rank": 1,
+            "row": 2,
+            "column": 1,
+            "requires": ["pyromania", "arcane_barrier"]
+          }
+        ]
+      }
+    ]
+  }
+]
