@@ -24,9 +24,17 @@
     quest_giver:
       x: 480
       y: 340
-    east_exit:
-      x: 900
+    entry_from_east:
+      x: 840
       y: 320
+    exit_east:
+      x: 920
+      y: 320
+  connections:
+    east:
+      zone: dawnwood-glade
+      entry_direction: west
+      entry_spawn: entry_from_west
   encounter_tables:
     ambient:
       - table: "campfire-stories"
@@ -88,9 +96,10 @@
     quest_giver:
       x: 640
       y: 320
-    west_exit:
-      x: 60
+    entry_from_west:
+      x: 100
       y: 360
+  connections: {}
   encounter_tables:
     patrols:
       - table: "town-guards"
@@ -131,3 +140,534 @@
       width: 120
       height: 180
   is_static: true
+- name: dawnwood-glade
+  description: "Peaceful forest tinged by subtle corruption."
+  bounds:
+    x: 0
+    y: 0
+    width: 1800
+    height: 1200
+  danger_level: "low"
+  background: "#132015"
+  theme: "forest"
+  seed: 2001
+  spawn_rules:
+    - spawn: "Mischief Sprite"
+      weight: 3
+      max_count: 6
+    - spawn: "Thorn Boar"
+      weight: 2
+      max_count: 4
+    - spawn: "Twigling"
+      weight: 2
+      max_count: 5
+    - spawn: "Briar Matron"
+      weight: 1
+      max_count: 1
+  spawn_points:
+    player:
+      x: 200
+      y: 600
+    entry_from_west:
+      x: 120
+      y: 600
+    entry_from_east:
+      x: 1680
+      y: 600
+    exit_east:
+      x: 1740
+      y: 600
+  connections:
+    west:
+      zone: camp
+      entry_direction: east
+      entry_spawn: entry_from_east
+    east:
+      zone: amberfield-farms
+      entry_direction: west
+      entry_spawn: entry_from_west
+  encounter_tables:
+    ambient:
+      - table: "forest-echoes"
+        weight: 1
+  obstacles: []
+  is_static: false
+- name: amberfield-farms
+  description: "Farmland under strain from tunneling pests."
+  bounds:
+    x: 0
+    y: 0
+    width: 1680
+    height: 1120
+  danger_level: "moderate"
+  background: "#2a2010"
+  theme: "farmland"
+  seed: 2002
+  spawn_rules:
+    - spawn: "Plague Locust"
+      weight: 3
+      max_count: 6
+    - spawn: "Tunnel Beetle"
+      weight: 2
+      max_count: 5
+    - spawn: "Scarecrow Shade"
+      weight: 2
+      max_count: 3
+    - spawn: "Burrow King"
+      weight: 1
+      max_count: 1
+  spawn_points:
+    player:
+      x: 160
+      y: 560
+    entry_from_west:
+      x: 100
+      y: 560
+    entry_from_south:
+      x: 840
+      y: 1000
+    entry_from_north:
+      x: 840
+      y: 140
+    exit_north:
+      x: 840
+      y: 60
+  connections:
+    west:
+      zone: dawnwood-glade
+      entry_direction: east
+      entry_spawn: entry_from_east
+    north:
+      zone: cragstep-pass
+      entry_direction: south
+      entry_spawn: entry_from_south
+  encounter_tables:
+    patrols:
+      - table: "farmhands"
+        weight: 1
+  obstacles: []
+  is_static: false
+- name: cragstep-pass
+  description: "Rocky trade route and smuggler haven."
+  bounds:
+    x: 0
+    y: 0
+    width: 1800
+    height: 1200
+  danger_level: "moderate"
+  background: "#1c1c24"
+  theme: "mountain"
+  seed: 2003
+  spawn_rules:
+    - spawn: "Ridge Hyena"
+      weight: 3
+      max_count: 6
+    - spawn: "Rockdrake"
+      weight: 2
+      max_count: 4
+    - spawn: "Smuggler Rogue"
+      weight: 2
+      max_count: 3
+    - spawn: "Cutthroat Captain"
+      weight: 1
+      max_count: 1
+  spawn_points:
+    player:
+      x: 180
+      y: 640
+    entry_from_south:
+      x: 900
+      y: 1120
+    entry_from_east:
+      x: 1680
+      y: 640
+    entry_from_west:
+      x: 120
+      y: 640
+    exit_east:
+      x: 1740
+      y: 640
+  connections:
+    south:
+      zone: amberfield-farms
+      entry_direction: north
+      entry_spawn: entry_from_north
+    east:
+      zone: sunken-reeds
+      entry_direction: west
+      entry_spawn: entry_from_west
+  encounter_tables:
+    ambushes:
+      - table: "smuggler-ambush"
+        weight: 1
+  obstacles: []
+  is_static: false
+- name: sunken-reeds
+  description: "Marshland with submerged ruins and hungry reeds."
+  bounds:
+    x: 0
+    y: 0
+    width: 1920
+    height: 1280
+  danger_level: "moderate"
+  background: "#0f1b18"
+  theme: "marsh"
+  seed: 2004
+  spawn_rules:
+    - spawn: "Bog Wraith"
+      weight: 2
+      max_count: 4
+    - spawn: "Giant Leech"
+      weight: 2
+      max_count: 4
+    - spawn: "Fen Serpent"
+      weight: 2
+      max_count: 3
+    - spawn: "Marsh Siren"
+      weight: 1
+      max_count: 1
+  spawn_points:
+    player:
+      x: 200
+      y: 540
+    entry_from_west:
+      x: 120
+      y: 540
+    entry_from_east:
+      x: 1780
+      y: 720
+    exit_east:
+      x: 1840
+      y: 720
+  connections:
+    west:
+      zone: cragstep-pass
+      entry_direction: east
+      entry_spawn: entry_from_east
+    east:
+      zone: ironveil-outskirts
+      entry_direction: west
+      entry_spawn: entry_from_west
+  encounter_tables:
+    ambient:
+      - table: "reedsong"
+        weight: 1
+  obstacles: []
+  is_static: false
+- name: ironveil-outskirts
+  description: "Frontier town beside an old iron fortress."
+  bounds:
+    x: 0
+    y: 0
+    width: 1680
+    height: 1120
+  danger_level: "high"
+  background: "#181414"
+  theme: "fortress"
+  seed: 2005
+  spawn_rules:
+    - spawn: "Rust Mite"
+      weight: 3
+      max_count: 6
+    - spawn: "Renegade Guard"
+      weight: 2
+      max_count: 4
+    - spawn: "Smoke Imp"
+      weight: 2
+      max_count: 3
+    - spawn: "Forgemaw Golem"
+      weight: 1
+      max_count: 1
+  spawn_points:
+    player:
+      x: 200
+      y: 560
+    entry_from_west:
+      x: 120
+      y: 560
+    entry_from_south:
+      x: 820
+      y: 1000
+    entry_from_north:
+      x: 820
+      y: 140
+    exit_north:
+      x: 820
+      y: 60
+  connections:
+    west:
+      zone: sunken-reeds
+      entry_direction: east
+      entry_spawn: entry_from_east
+    north:
+      zone: hollowforge-depths
+      entry_direction: south
+      entry_spawn: entry_from_south
+  encounter_tables:
+    patrols:
+      - table: "rust-scouts"
+        weight: 1
+  obstacles: []
+  is_static: false
+- name: hollowforge-depths
+  description: "Abandoned subterranean forge humming with heat."
+  bounds:
+    x: 0
+    y: 0
+    width: 1600
+    height: 1400
+  danger_level: "high"
+  background: "#1c0f0f"
+  theme: "forge"
+  seed: 2006
+  spawn_rules:
+    - spawn: "Emberling"
+      weight: 3
+      max_count: 6
+    - spawn: "Molten Hound"
+      weight: 2
+      max_count: 4
+    - spawn: "Unstable Construct"
+      weight: 2
+      max_count: 3
+    - spawn: "Magmarion"
+      weight: 1
+      max_count: 1
+  spawn_points:
+    player:
+      x: 200
+      y: 700
+    entry_from_south:
+      x: 800
+      y: 1300
+    entry_from_east:
+      x: 1480
+      y: 700
+    entry_from_west:
+      x: 120
+      y: 700
+    exit_east:
+      x: 1520
+      y: 700
+  connections:
+    south:
+      zone: ironveil-outskirts
+      entry_direction: north
+      entry_spawn: entry_from_north
+    east:
+      zone: gloamscar-canyon
+      entry_direction: west
+      entry_spawn: entry_from_west
+  encounter_tables:
+    ambient:
+      - table: "clinking-chains"
+        weight: 1
+  obstacles: []
+  is_static: false
+- name: gloamscar-canyon
+  description: "Twilight canyon lit by bioluminescent fungi."
+  bounds:
+    x: 0
+    y: 0
+    width: 1920
+    height: 1200
+  danger_level: "high"
+  background: "#101419"
+  theme: "canyon"
+  seed: 2007
+  spawn_rules:
+    - spawn: "Spore Bat"
+      weight: 3
+      max_count: 6
+    - spawn: "Fungal Hulk"
+      weight: 2
+      max_count: 4
+    - spawn: "Myconid Seer"
+      weight: 2
+      max_count: 3
+    - spawn: "Spore Tyrant"
+      weight: 1
+      max_count: 1
+  spawn_points:
+    player:
+      x: 200
+      y: 640
+    entry_from_west:
+      x: 140
+      y: 640
+    entry_from_north:
+      x: 960
+      y: 140
+    entry_from_south:
+      x: 960
+      y: 1060
+    exit_north:
+      x: 960
+      y: 80
+  connections:
+    west:
+      zone: hollowforge-depths
+      entry_direction: east
+      entry_spawn: entry_from_east
+    north:
+      zone: shattered-observatory
+      entry_direction: south
+      entry_spawn: entry_from_south
+  encounter_tables:
+    ambient:
+      - table: "spore-drifts"
+        weight: 1
+  obstacles: []
+  is_static: false
+- name: shattered-observatory
+  description: "Ruined astral research tower split by a fallen star."
+  bounds:
+    x: 0
+    y: 0
+    width: 1800
+    height: 1400
+  danger_level: "very high"
+  background: "#1a1024"
+  theme: "astral"
+  seed: 2008
+  spawn_rules:
+    - spawn: "Starfall Wisp"
+      weight: 3
+      max_count: 6
+    - spawn: "Temporal Echo"
+      weight: 2
+      max_count: 4
+    - spawn: "Crystal Raven"
+      weight: 2
+      max_count: 3
+    - spawn: "Fallen Astromancer"
+      weight: 1
+      max_count: 1
+  spawn_points:
+    player:
+      x: 200
+      y: 720
+    entry_from_south:
+      x: 900
+      y: 1300
+    entry_from_west:
+      x: 120
+      y: 720
+    entry_from_east:
+      x: 1680
+      y: 720
+    exit_east:
+      x: 1720
+      y: 720
+  connections:
+    south:
+      zone: gloamscar-canyon
+      entry_direction: north
+      entry_spawn: entry_from_north
+    east:
+      zone: veil-breach-frontier
+      entry_direction: west
+      entry_spawn: entry_from_west
+  encounter_tables:
+    ambient:
+      - table: "astral-whispers"
+        weight: 1
+  obstacles: []
+  is_static: false
+- name: veil-breach-frontier
+  description: "Rift-scarred badlands where reality flickers."
+  bounds:
+    x: 0
+    y: 0
+    width: 1920
+    height: 1280
+  danger_level: "very high"
+  background: "#161016"
+  theme: "rift"
+  seed: 2009
+  spawn_rules:
+    - spawn: "Void Hound"
+      weight: 3
+      max_count: 6
+    - spawn: "Phase Bandit"
+      weight: 2
+      max_count: 4
+    - spawn: "Distortion Shade"
+      weight: 2
+      max_count: 3
+    - spawn: "Rift Stalker"
+      weight: 1
+      max_count: 1
+  spawn_points:
+    player:
+      x: 200
+      y: 620
+    entry_from_west:
+      x: 160
+      y: 620
+    entry_from_east:
+      x: 1760
+      y: 620
+    exit_east:
+      x: 1820
+      y: 620
+  connections:
+    west:
+      zone: shattered-observatory
+      entry_direction: east
+      entry_spawn: entry_from_east
+    east:
+      zone: gate-of-cinders
+      entry_direction: west
+      entry_spawn: entry_from_west
+  encounter_tables:
+    ambient:
+      - table: "rift-hum"
+        weight: 1
+  obstacles: []
+  is_static: false
+- name: gate-of-cinders
+  description: "Charred fortress interior guarding the sealed gate."
+  bounds:
+    x: 0
+    y: 0
+    width: 2000
+    height: 1400
+  danger_level: "extreme"
+  background: "#1b0f0f"
+  theme: "gate"
+  seed: 2010
+  spawn_rules:
+    - spawn: "Ashen Knight"
+      weight: 3
+      max_count: 4
+    - spawn: "Ember Wraith"
+      weight: 2
+      max_count: 4
+    - spawn: "Voidforged Construct"
+      weight: 2
+      max_count: 3
+    - spawn: "Cinder Warden"
+      weight: 1
+      max_count: 1
+  spawn_points:
+    player:
+      x: 220
+      y: 700
+    entry_from_west:
+      x: 160
+      y: 700
+    entry_from_east:
+      x: 1840
+      y: 700
+  connections:
+    west:
+      zone: veil-breach-frontier
+      entry_direction: east
+      entry_spawn: entry_from_east
+  encounter_tables:
+    siege:
+      - table: "gate-defense"
+        weight: 1
+  obstacles: []
+  is_static: false

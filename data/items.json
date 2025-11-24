@@ -158,5 +158,192 @@
     "rarity": "uncommon",
     "on_use": "fireball",
     "value": 6
+  },
+  {
+    "name": "briar_crown",
+    "description": "Crown of woven thorns that channels nature magic.",
+    "slot": "helm",
+    "power": 1,
+    "defense": 1,
+    "speed": 0,
+    "max_durability": 16,
+    "value": 7,
+    "appearance_states": ["fresh", "dry", "brittle"]
+  },
+  {
+    "name": "earthsplitter",
+    "description": "Massive digging claw fitted with iron teeth.",
+    "slot": "mainhand",
+    "power": 6,
+    "defense": 0,
+    "speed": -1,
+    "max_durability": 35,
+    "value": 12,
+    "appearance_states": ["sharp", "dulled", "broken"]
+  },
+  {
+    "name": "spark_dagger",
+    "description": "Smuggler blade lined with crackling gem slivers.",
+    "slot": "mainhand",
+    "power": 4,
+    "defense": 0,
+    "speed": 3,
+    "max_durability": 22,
+    "value": 9,
+    "appearance_states": ["charged", "fading", "spent"]
+  },
+  {
+    "name": "ridge_cloak",
+    "description": "Cloak stitched with rockdrake scales for gliding.",
+    "slot": "back",
+    "power": 0,
+    "defense": 2,
+    "speed": 1,
+    "max_durability": 20,
+    "value": 11,
+    "appearance_states": ["intact", "torn", "shredded"]
+  },
+  {
+    "name": "reedsong_staff",
+    "description": "Staff that hums with marsh whispers.",
+    "slot": "mainhand",
+    "power": 5,
+    "defense": 0,
+    "speed": 1,
+    "max_durability": 28,
+    "value": 13,
+    "appearance_states": ["tuned", "warped", "waterlogged"]
+  },
+  {
+    "name": "iron_ward",
+    "description": "Compact tower shield salvaged from Ironveil.",
+    "slot": "offhand",
+    "power": 0,
+    "defense": 5,
+    "speed": -2,
+    "max_durability": 40,
+    "value": 14,
+    "appearance_states": ["polished", "scuffed", "cracked"]
+  },
+  {
+    "name": "forgemaw_plate",
+    "description": "Armor lined with inner furnace plating.",
+    "slot": "armor",
+    "power": 0,
+    "defense": 7,
+    "speed": -2,
+    "max_durability": 45,
+    "value": 18,
+    "appearance_states": ["sealed", "dented", "molten"]
+  },
+  {
+    "name": "heart_anvil_shard",
+    "description": "Shard from the Heart-Anvil, warm to the touch.",
+    "slot": "bag",
+    "power": 2,
+    "defense": 0,
+    "speed": 0,
+    "item_type": "material",
+    "rarity": "rare",
+    "value": 20
+  },
+  {
+    "name": "spore_talisman",
+    "description": "Bioluminescent charm that grants spore vision.",
+    "slot": "offhand",
+    "power": 1,
+    "defense": 1,
+    "speed": 1,
+    "max_durability": 24,
+    "value": 12,
+    "appearance_states": ["glowing", "dim", "dark"]
+  },
+  {
+    "name": "glowroot_robe",
+    "description": "Robe woven from resilient glowroot fibers.",
+    "slot": "armor",
+    "power": 2,
+    "defense": 4,
+    "speed": 0,
+    "max_durability": 30,
+    "value": 16,
+    "appearance_states": ["radiant", "dusty", "frayed"]
+  },
+  {
+    "name": "starshard_staff",
+    "description": "Staff topped with a captured star fragment.",
+    "slot": "mainhand",
+    "power": 7,
+    "defense": 0,
+    "speed": 2,
+    "max_durability": 36,
+    "value": 22,
+    "appearance_states": ["brilliant", "glimmering", "faded"]
+  },
+  {
+    "name": "veil_blade",
+    "description": "Knife that slices between phases of reality.",
+    "slot": "mainhand",
+    "power": 6,
+    "defense": 0,
+    "speed": 4,
+    "max_durability": 30,
+    "value": 19,
+    "appearance_states": ["sharp", "blurred", "dulled"]
+  },
+  {
+    "name": "riftcarved_claws",
+    "description": "Claw set etched with rift sigils.",
+    "slot": "mainhand",
+    "power": 8,
+    "defense": 0,
+    "speed": 3,
+    "max_durability": 32,
+    "value": 24,
+    "appearance_states": ["keen", "scarred", "broken"]
+  },
+  {
+    "name": "ember_plate",
+    "description": "Plate armor tempered in gatefire.",
+    "slot": "armor",
+    "power": 0,
+    "defense": 8,
+    "speed": -2,
+    "max_durability": 50,
+    "value": 26,
+    "appearance_states": ["sealed", "charred", "cracked"]
+  },
+  {
+    "name": "voidstone_core",
+    "description": "Crystal heart that stabilizes voidforged guardians.",
+    "slot": "bag",
+    "power": 3,
+    "defense": 0,
+    "speed": 0,
+    "item_type": "material",
+    "rarity": "epic",
+    "value": 28
+  },
+  {
+    "name": "cinder_halberd",
+    "description": "Halberd blazing with forge-fire runes.",
+    "slot": "mainhand",
+    "power": 9,
+    "defense": 0,
+    "speed": 1,
+    "max_durability": 42,
+    "value": 30,
+    "appearance_states": ["flaring", "smoldering", "ashen"]
+  },
+  {
+    "name": "cinder_cape",
+    "description": "Cape threaded with ember wards to resist void.",
+    "slot": "back",
+    "power": 1,
+    "defense": 3,
+    "speed": 1,
+    "max_durability": 28,
+    "value": 21,
+    "appearance_states": ["intact", "singed", "tattered"]
   }
 ]

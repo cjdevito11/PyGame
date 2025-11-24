@@ -6,3 +6,67 @@
   description: An eerie shape that flickers in the dark.
   symbol: "G"
   color: cyan
+- name: sprite
+  description: A darting mote of light with playful malice.
+  symbol: "*"
+  color: lightgreen
+- name: boar
+  description: A hulking boar with jagged tusks.
+  symbol: "B"
+  color: brown
+- name: treant
+  description: A towering tree-creature animated by corrupted sap.
+  symbol: "T"
+  color: darkgreen
+- name: farmer
+  description: Weathered farmer in tattered clothes clutching tools.
+  symbol: "f"
+  color: tan
+- name: burrower
+  description: A chitin-plated tunneler from beneath the fields.
+  symbol: "m"
+  color: sienna
+- name: smuggler
+  description: Lean rogue with quick blades and a mean streak.
+  symbol: "s"
+  color: gray
+- name: drake
+  description: A low-slung rock drake with mineral spines.
+  symbol: "d"
+  color: lightgray
+- name: siren
+  description: A haunting figure half-submerged in reed-choked water.
+  symbol: "~"
+  color: teal
+- name: leech
+  description: Bloated leech swollen with dark water.
+  symbol: "l"
+  color: purple
+- name: golem
+  description: Massive construct bound by iron bands.
+  symbol: "G"
+  color: orange
+- name: elemental
+  description: Molten figure dripping sparks and slag.
+  symbol: "E"
+  color: red
+- name: myconid
+  description: Bioluminescent fungal being with drifting spores.
+  symbol: "m"
+  color: lightblue
+- name: moth
+  description: Oversized luminous moth that flutters in the gloom.
+  symbol: "M"
+  color: white
+- name: astronomer
+  description: Robed scholar clutching cracked star charts.
+  symbol: "A"
+  color: violet
+- name: voidling
+  description: Distorted creature phasing in and out of view.
+  symbol: "v"
+  color: magenta
+- name: warden
+  description: Armored guardian wreathed in cinders.
+  symbol: "W"
+  color: orange
