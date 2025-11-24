@@ -64,5 +64,101 @@
         "condition_value": "Guide"
       }
     ]
+  },
+  {
+    "identifier": "cleanse-dawnwood",
+    "description": "Cull the corrupted growths in Dawnwood Glade.",
+    "trigger_event": "combat.defeated",
+    "owner": "Guide",
+    "reward_items": ["briar_crown"],
+    "reward_attributes": {"mastery": 1},
+    "target_monsters": {"Briar Matron": 1, "Thorn Boar": 3}
+  },
+  {
+    "identifier": "shore-up-amberfield",
+    "description": "Help the farmers reclaim Amberfield Farms from tunneling pests.",
+    "trigger_event": "combat.defeated",
+    "owner": "Guide",
+    "reward_gold": 6,
+    "reward_items": ["earthsplitter"],
+    "target_monsters": {"Burrow King": 1, "Tunnel Beetle": 4}
+  },
+  {
+    "identifier": "shut-smuggler-route",
+    "description": "Break the smuggler chain through Cragstep Pass.",
+    "trigger_event": "combat.defeated",
+    "owner": "Guide",
+    "reward_items": ["spark_dagger", "ridge_cloak"],
+    "target_monsters": {"Cutthroat Captain": 1, "Smuggler Rogue": 3}
+  },
+  {
+    "identifier": "silence-siren",
+    "description": "End the song echoing from Sunken Reeds.",
+    "trigger_event": "combat.defeated",
+    "owner": "Guide",
+    "reward_items": ["reedsong_staff"],
+    "reward_gold": 7,
+    "target_monsters": {"Marsh Siren": 1, "Giant Leech": 3}
+  },
+  {
+    "identifier": "secure-ironveil",
+    "description": "Reclaim the Ironveil Outskirts defenses.",
+    "trigger_event": "combat.defeated",
+    "owner": "Guide",
+    "reward_items": ["iron_ward", "forgemaw_plate"],
+    "target_monsters": {"Forgemaw Golem": 1, "Renegade Guard": 4}
+  },
+  {
+    "identifier": "ignite-heart-anvil",
+    "description": "Recover Heart-Anvil shards from Hollowforge Depths.",
+    "trigger_event": "combat.defeated",
+    "owner": "Guide",
+    "reward_items": ["heart_anvil_shard"],
+    "reward_gold": 8,
+    "target_monsters": {"Magmarion": 1, "Unstable Construct": 2}
+  },
+  {
+    "identifier": "clear-gloamscar",
+    "description": "Disperse the spore mind within Gloamscar Canyon.",
+    "trigger_event": "combat.defeated",
+    "owner": "Guide",
+    "reward_items": ["spore_talisman", "glowroot_robe"],
+    "target_monsters": {"Spore Tyrant": 1, "Fungal Hulk": 3}
+  },
+  {
+    "identifier": "stabilize-observatory",
+    "description": "Stabilize the starshards in the Shattered Observatory.",
+    "trigger_event": "combat.defeated",
+    "owner": "Guide",
+    "reward_items": ["starshard_staff"],
+    "target_monsters": {"Fallen Astromancer": 1, "Temporal Echo": 2}
+  },
+  {
+    "identifier": "contain-veil-breach",
+    "description": "Contain the phase predators at the Veil-Breach Frontier.",
+    "trigger_event": "combat.defeated",
+    "owner": "Guide",
+    "reward_items": ["veil_blade", "riftcarved_claws"],
+    "target_monsters": {"Rift Stalker": 1, "Phase Bandit": 3}
+  },
+  {
+    "identifier": "lock-gate-of-cinders",
+    "description": "Use the gathered shards to lock the Gate of Cinders.",
+    "trigger_event": "combat.defeated",
+    "owner": "Guide",
+    "prerequisites": [
+      "cleanse-dawnwood",
+      "shore-up-amberfield",
+      "shut-smuggler-route",
+      "silence-siren",
+      "secure-ironveil",
+      "ignite-heart-anvil",
+      "clear-gloamscar",
+      "stabilize-observatory",
+      "contain-veil-breach"
+    ],
+    "reward_items": ["cinder_halberd", "cinder_cape"],
+    "reward_gold": 20,
+    "target_monsters": {"Cinder Warden": 1, "Voidforged Construct": 2}
   }
 ]

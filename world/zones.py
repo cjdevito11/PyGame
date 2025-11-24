@@ -1,7 +1,7 @@
 """Zone definitions, helpers, and registry utilities."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from random import Random
 from typing import Callable, Dict, Iterable, List, Mapping, Sequence, Tuple
 
@@ -73,6 +73,23 @@ class SpawnPoint:
 
 
 @dataclass
+class ZoneConnection:
+    """Describes how to travel from one zone into another."""
+
+    zone: str
+    entry_direction: str | None = None
+    entry_spawn: str | None = None
+
+    @classmethod
+    def from_definition(cls, data: Mapping[str, object]) -> "ZoneConnection":
+        return cls(
+            zone=str(data["zone"]),
+            entry_direction=data.get("entry_direction"),
+            entry_spawn=data.get("entry_spawn"),
+        )
+
+
+@dataclass
 class EncounterTableRef:
     """Reference to an encounter table with a selection weight."""
 
@@ -95,6 +112,7 @@ class Zone:
     spawn_rules: List[SpawnRule]
     obstacles: List[ZoneBounds]
     spawn_points: Dict[str, SpawnPoint]
+    connections: Dict[str, ZoneConnection] = field(default_factory=dict)
     encounter_tables: Dict[str, List[EncounterTableRef]]
     background: Tuple[int, int, int]
     theme: str | None = None
@@ -112,6 +130,10 @@ class Zone:
             key: SpawnPoint.from_definition(value)
             for key, value in data.get("spawn_points", {}).items()
         }
+        connections = {
+            direction: ZoneConnection.from_definition(value)
+            for direction, value in data.get("connections", {}).items()
+        }
         encounter_tables = {
             category: [EncounterTableRef.from_definition(entry) for entry in entries]
             for category, entries in data.get("encounter_tables", {}).items()
@@ -124,6 +146,7 @@ class Zone:
             spawn_rules=spawn_rules,
             obstacles=obstacles,
             spawn_points=spawn_points,
+            connections=connections,
             encounter_tables=encounter_tables,
             background=_parse_color(data.get("background", "#101218")),
             theme=data.get("theme"),
@@ -225,6 +248,7 @@ def create_outdoor_zone(
         obstacles=obstacles,
         spawn_points=spawn_points,
         encounter_tables=encounter_tables,
+        connections={},
         background=(18, 20, 26),
         theme=selected_theme,
         seed=seed,
