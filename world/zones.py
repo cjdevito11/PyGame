@@ -112,9 +112,9 @@ class Zone:
     spawn_rules: List[SpawnRule]
     obstacles: List[ZoneBounds]
     spawn_points: Dict[str, SpawnPoint]
+    background: Tuple[int, int, int]
     connections: Dict[str, ZoneConnection] = field(default_factory=dict)
     encounter_tables: Dict[str, List[EncounterTableRef]] = field(default_factory=dict)
-    background: Tuple[int, int, int]
     theme: str | None = None
     seed: int | None = None
     start_zone: bool = False
@@ -146,9 +146,9 @@ class Zone:
             spawn_rules=spawn_rules,
             obstacles=obstacles,
             spawn_points=spawn_points,
+            background=_parse_color(data.get("background", "#101218")),
             connections=connections,
             encounter_tables=encounter_tables,
-            background=_parse_color(data.get("background", "#101218")),
             theme=data.get("theme"),
             seed=data.get("seed"),
             start_zone=bool(data.get("start_zone", False)),
