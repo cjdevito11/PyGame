@@ -16,6 +16,7 @@ from world.entities import (
     MonsterFamily,
     Profession,
     Recipe,
+    TalentTree,
 )
 from world.schemas import (
     AbilityDefinition,
@@ -26,6 +27,7 @@ from world.schemas import (
     MonsterFamilyDefinition,
     ProfessionDefinition,
     RecipeDefinition,
+    TalentTreeDefinition,
     ZoneDefinition,
 )
 from world.zones import Zone
@@ -43,6 +45,7 @@ class RegistryBundle:
         self.characters = Registry("characters", self.validator, CharacterProfile.from_definition)
         self.zones = Registry("zones", self.validator, Zone.from_definition)
         self.abilities = Registry("abilities", self.validator, Ability.from_definition)
+        self.talents = Registry("talents", self.validator, TalentTree.from_definition)
         self.professions = Registry("professions", self.validator, Profession.from_definition)
         self.recipes = Registry("recipes", self.validator, Recipe.from_definition)
         self.families = Registry("monster_families", self.validator, MonsterFamily.from_definition)
@@ -54,6 +57,7 @@ class RegistryBundle:
         self.validator.register_schema("characters", CharacterDefinition)
         self.validator.register_schema("zones", ZoneDefinition)
         self.validator.register_schema("abilities", AbilityDefinition)
+        self.validator.register_schema("talents", TalentTreeDefinition)
         self.validator.register_schema("professions", ProfessionDefinition)
         self.validator.register_schema("recipes", RecipeDefinition)
         self.validator.register_schema("monster_families", MonsterFamilyDefinition)
@@ -69,6 +73,7 @@ class RegistryBundle:
             "zones.yaml",
             "zones.json",
             "abilities.json",
+            "talents.json",
             "professions.json",
             "recipes.json",
             "monster_families.json",
@@ -89,6 +94,8 @@ class RegistryBundle:
             self.zones.load_many(datasets["zones"])
         if "abilities" in datasets:
             self.abilities.load_many(datasets["abilities"])
+        if "talents" in datasets:
+            self.talents.load_many(datasets["talents"])
         if "professions" in datasets:
             self.professions.load_many(datasets["professions"])
         if "recipes" in datasets:
