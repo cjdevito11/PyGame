@@ -223,6 +223,13 @@ class PygameMMO:
         self.tile_surface_cache: dict[tuple[str, int], pygame.Surface] = {}
         self.camera_position: Tuple[float, float] = (0.0, 0.0)
         self.actors: Dict[str, Actor] = self._spawn_start_area()
+        self.sprite_library: dict[str, SpriteSheet] = {}
+        self.item_sprite_layers: dict[str, SpriteSheet] = {}
+        self.player_composite: SpriteSheet | None = None
+        self.tilemaps: dict[str, dict] = {}
+        self.tile_atlas: dict[str, pygame.Surface] = {}
+        self.tile_surface_cache: dict[tuple[str, int], pygame.Surface] = {}
+        self.camera_position: Tuple[float, float] = (0.0, 0.0)
         self.tutorial = TutorialManager()
         self.show_inventory = False
         self.show_menu_panel = False
