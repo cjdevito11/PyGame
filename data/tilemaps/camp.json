@@ -1,0 +1,31 @@
+{
+  "tile_size": 40,
+  "width": 24,
+  "height": 16,
+  "base": "grass",
+  "overrides": [
+    {"tile": "path", "rect": [10, 0, 2, 16]},
+    {"tile": "path", "rect": [0, 12, 24, 2]},
+    {"tile": "path", "rect": [6, 10, 8, 2]}
+  ],
+  "decorations": [
+    {"tile": "flowers", "positions": [[4, 4], [18, 5], [6, 7], [14, 11]]},
+    {"tile": "campfire", "positions": [[12, 8]]},
+    {"tile": "tent", "positions": [[8, 7], [16, 6]]}
+  ],
+  "props": [
+    {"tile": "log", "positions": [[11, 8], [13, 8]]}
+  ],
+  "parallax": [
+    {"tile": "hills", "speed": 0.35, "offset": [0, 10]},
+    {"tile": "trees", "speed": 0.55, "offset": [0, 40]}
+  ],
+  "collision": [
+    {"rect": [0, 0, 1, 16]},
+    {"rect": [23, 0, 1, 16]},
+    {"rect": [0, 0, 24, 1]},
+    {"rect": [0, 15, 24, 1]},
+    {"rect": [5, 6, 3, 2]},
+    {"rect": [15, 5, 3, 2]}
+  ]
+}
