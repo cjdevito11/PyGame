@@ -142,6 +142,7 @@ class PygameMMO:
         self.bus: EventBus = context.bus
         self.running = False
         self.font: pygame.font.Font | None = None
+        self.display_initialized = False
         self.screen_size = SCREEN_SIZE
         self.background = BACKGROUND
         self.quest_log: list[str] = []
@@ -193,7 +194,7 @@ class PygameMMO:
     def _apply_zone_settings(self, zone: Zone | None) -> None:
         settings = self.context.zones.map_settings()
         size = settings.get("size", SCREEN_SIZE)
-        if isinstance(size, tuple) and len(size) == 2:
+        if not self.display_initialized and isinstance(size, tuple) and len(size) == 2:
             self.screen_size = (int(size[0]), int(size[1]))
         self.background = settings.get("background", BACKGROUND)
 
@@ -2181,69 +2182,6 @@ class PygameMMO:
         label = self.font.render(zone.name.title(), True, (210, 220, 235))
         screen.blit(label, (map_rect.x + 12, map_rect.y + 8))
 
-    def _render_minimap(self, screen: pygame.Surface, zone: Zone) -> None:
-        if not self.font:
-            return
-
-        bounds = self._zone_rect(zone)
-        if not bounds:
-            return
-
-        margin = 12
-        max_dimension = min(max(self.screen_size) * 0.25, 240)
-        map_size = int(max(170, max_dimension))
-        map_rect = pygame.Rect(
-            self.screen_size[0] - map_size - margin,
-            margin,
-            map_size,
-            map_size,
-        )
-
-        pygame.draw.rect(screen, (16, 20, 28), map_rect, border_radius=12)
-        pygame.draw.rect(screen, (90, 120, 150), map_rect, 2, border_radius=12)
-
-        padding = 10
-        available_w = map_rect.width - padding * 2
-        available_h = map_rect.height - padding * 2
-        scale = min(available_w / bounds.width, available_h / bounds.height)
-        content_w = bounds.width * scale
-        content_h = bounds.height * scale
-        origin_x = map_rect.x + padding + (available_w - content_w) / 2
-        origin_y = map_rect.y + padding + (available_h - content_h) / 2
-
-        def project_rect(rect: pygame.Rect) -> pygame.Rect:
-            return pygame.Rect(
-                int(origin_x + (rect.x - bounds.x) * scale),
-                int(origin_y + (rect.y - bounds.y) * scale),
-                max(2, int(rect.width * scale)),
-                max(2, int(rect.height * scale)),
-            )
-
-        pygame.draw.rect(
-            screen,
-            (40, 60, 82),
-            pygame.Rect(int(origin_x), int(origin_y), int(content_w), int(content_h)),
-            2,
-            border_radius=8,
-        )
-
-        for obstacle in self._zone_obstacles(zone):
-            projected = project_rect(obstacle)
-            pygame.draw.rect(screen, (65, 85, 115), projected, border_radius=4)
-            pygame.draw.rect(screen, (110, 140, 175), projected, 1, border_radius=4)
-
-        for actor in self.actors.values():
-            rect = project_rect(actor.rect)
-            center = (rect.centerx, rect.centery)
-            color = pygame.Color(200, 70, 70) if actor.name == self.target_name else actor.color
-            if actor.name == PLAYER_NAME:
-                color = pygame.Color(240, 220, 140)
-            pygame.draw.circle(screen, color, center, max(3, int(6 * scale)), width=0)
-            pygame.draw.circle(screen, (12, 14, 18), center, max(3, int(6 * scale)), 1)
-
-        label = self.font.render(zone.name.title(), True, (210, 220, 235))
-        screen.blit(label, (map_rect.x + 12, map_rect.y + 8))
-
     def _clamp_to_bounds(self, rect: pygame.Rect, bounds: pygame.Rect) -> pygame.Rect:
         clamped = pygame.Rect(
             max(bounds.x, min(bounds.x + bounds.width - rect.width, rect.x)),
@@ -2335,10 +2273,12 @@ class PygameMMO:
         try:
             self.screen_size = self._detect_display_size()
             screen = pygame.display.set_mode(self.screen_size, pygame.FULLSCREEN)
+            self.display_initialized = True
         except Exception as exc:  # pragma: no cover - defensive video fallback
             log_with_fields(logger, logging.WARNING, "Fullscreen mode failed, falling back", error=str(exc))
             self.screen_size = SCREEN_SIZE
             screen = pygame.display.set_mode(self.screen_size)
+            self.display_initialized = True
         clock = pygame.time.Clock()
         self.running = True
 
