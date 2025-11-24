@@ -2506,7 +2506,7 @@ class PygameMMO:
         for obstacle in self._zone_obstacles(zone):
             screen_obstacle = self._screen_rect(obstacle)
             overlay = pygame.Surface((screen_obstacle.width, screen_obstacle.height), pygame.SRCALPHA)
-            overlay.fill((*self.obstacle_color, 110))
+            overlay.fill((self.obstacle_color.r, self.obstacle_color.g, self.obstacle_color.b, 110))
             screen.blit(overlay, screen_obstacle)
 
         screen_bounds = self._screen_rect(bounds)
