@@ -130,6 +130,12 @@ class SpawnPointDefinition(BaseModel):
     y: int
 
 
+class ZoneConnectionDefinition(BaseModel):
+    zone: str
+    entry_direction: str | None = None
+    entry_spawn: str | None = None
+
+
 class EncounterTableDefinition(BaseModel):
     table: str
     weight: int = Field(default=1, ge=1)
@@ -141,6 +147,7 @@ class ZoneDefinition(BaseDefinition):
     spawn_rules: list[SpawnRuleDefinition] = Field(default_factory=list)
     obstacles: list[BoundsDefinition] = Field(default_factory=list)
     spawn_points: dict[str, SpawnPointDefinition] = Field(default_factory=dict)
+    connections: dict[str, ZoneConnectionDefinition] = Field(default_factory=dict)
     encounter_tables: dict[str, list[EncounterTableDefinition]] = Field(default_factory=dict)
     background: str = Field(default="#101218")
     theme: str | None = None

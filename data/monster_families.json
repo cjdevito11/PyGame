@@ -12,5 +12,54 @@
     "resistances": {"shadow": 3},
     "immunities": ["stun"],
     "rarity_bias": {"rare": 2}
+  },
+  {
+    "name": "beast",
+    "description": "Instinct-driven creatures that resist poison.",
+    "resistances": {"poison": 2},
+    "immunities": [],
+    "rarity_bias": {"common": 2}
+  },
+  {
+    "name": "plant",
+    "description": "Rooted things slow to burn but weak to axes.",
+    "resistances": {"fire": -1, "physical": 1},
+    "immunities": [],
+    "rarity_bias": {"uncommon": 1}
+  },
+  {
+    "name": "construct",
+    "description": "Created guardians with heavy plating.",
+    "resistances": {"physical": 2, "shadow": -1},
+    "immunities": ["bleed"],
+    "rarity_bias": {"uncommon": 1}
+  },
+  {
+    "name": "elemental",
+    "description": "Creatures of raw energy drawn from the forge and leylines.",
+    "resistances": {"fire": 3, "ice": -1},
+    "immunities": [],
+    "rarity_bias": {"rare": 1}
+  },
+  {
+    "name": "mycelial",
+    "description": "Fungal organisms that shrug off poison.",
+    "resistances": {"poison": 3},
+    "immunities": [],
+    "rarity_bias": {"uncommon": 2}
+  },
+  {
+    "name": "astral",
+    "description": "Star-touched beings that bend arcane flows.",
+    "resistances": {"arcane": 2, "shadow": 1},
+    "immunities": [],
+    "rarity_bias": {"rare": 2}
+  },
+  {
+    "name": "void",
+    "description": "Unstable entities phasing between realities.",
+    "resistances": {"shadow": 2},
+    "immunities": ["root"],
+    "rarity_bias": {"rare": 3}
   }
 ]
